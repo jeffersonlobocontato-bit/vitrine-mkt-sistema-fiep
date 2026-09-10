@@ -95,7 +95,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
     onChange({ ...spec, imageSlot: { x: 10, y: 10, w: 80, h: 40 } });
   };
 
-  const updateImageSlot = (patch: Partial<{ x: number; y: number; w: number; h: number }>) => {
+  const updateImageSlot = (patch: Partial<FormatTemplateSpec["imageSlot"]>) => {
     if (!spec.imageSlot) return;
     onChange({ ...spec, imageSlot: { ...spec.imageSlot, ...patch } });
   };
@@ -176,6 +176,18 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
                 <Input type="number" value={Math.round(spec.imageSlot.y)} onChange={(e) => updateImageSlot({ y: Number(e.target.value) })} placeholder="y %" />
                 <Input type="number" value={Math.round(spec.imageSlot.w)} onChange={(e) => updateImageSlot({ w: Number(e.target.value) })} placeholder="largura %" />
                 <Input type="number" value={Math.round(spec.imageSlot.h)} onChange={(e) => updateImageSlot({ h: Number(e.target.value) })} placeholder="altura %" />
+              </div>
+              <Label className="text-xs text-muted-foreground pt-1">Máscara (raio de cada canto, px)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Input type="number" value={spec.imageSlot.radiusTopLeft ?? 0} onChange={(e) => updateImageSlot({ radiusTopLeft: Number(e.target.value) })} placeholder="sup. esquerdo" />
+                <Input type="number" value={spec.imageSlot.radiusTopRight ?? 0} onChange={(e) => updateImageSlot({ radiusTopRight: Number(e.target.value) })} placeholder="sup. direito" />
+                <Input type="number" value={spec.imageSlot.radiusBottomLeft ?? 0} onChange={(e) => updateImageSlot({ radiusBottomLeft: Number(e.target.value) })} placeholder="inf. esquerdo" />
+                <Input type="number" value={spec.imageSlot.radiusBottomRight ?? 0} onChange={(e) => updateImageSlot({ radiusBottomRight: Number(e.target.value) })} placeholder="inf. direito" />
+              </div>
+              <Label className="text-xs text-muted-foreground pt-1">Borda de contorno (opcional)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Input type="color" value={spec.imageSlot.borderColor ?? "#D4E157"} onChange={(e) => updateImageSlot({ borderColor: e.target.value })} />
+                <Input type="number" value={spec.imageSlot.borderWidth ?? 0} onChange={(e) => updateImageSlot({ borderWidth: Number(e.target.value) })} placeholder="espessura px" />
               </div>
             </CardContent>
           </Card>
