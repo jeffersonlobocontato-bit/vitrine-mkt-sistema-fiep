@@ -124,6 +124,33 @@ const AdminUsuarios = () => {
     await load();
   };
 
+  const createUser = async () => {
+    if (!newUser.email.trim() || newUser.senha.length < 8) {
+      return toast.error("Informe o e-mail e uma senha com pelo menos 8 caracteres");
+    }
+    if (newScope === "casas" && newCasaIds.length === 0) return toast.error("Selecione ao menos uma Casa");
+    if (newScope === "unidade" && !newUnidadeId) return toast.error("Selecione a unidade");
+    setCreating(true);
+    const { data, error } = await supabase.functions.invoke("admin-create-user", {
+      body: {
+        email: newUser.email.trim(),
+        password: newUser.senha,
+        display_name: newUser.nome.trim() || null,
+        casa_ids: newScope === "casas" ? newCasaIds : [],
+        role: newRole,
+        unidade_id: newScope === "unidade" ? newUnidadeId : null,
+      },
+    });
+    setCreating(false);
+    const errMsg = error?.message ?? (data as { error?: string } | null)?.error;
+    if (errMsg) return toast.error(errMsg);
+    setNewUser({ nome: "", email: "", senha: "" });
+    setNewCasaIds([]);
+    setNewUnidadeId("");
+    toast.success("Usuário cadastrado — ele já pode entrar com esse e-mail e senha");
+    await load();
+  };
+
   const removeMember = async (id: string) => {
     const { error } = await db.from("casa_members").delete().eq("id", id);
     if (error) return toast.error(error.message);
