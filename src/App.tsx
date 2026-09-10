@@ -13,6 +13,7 @@ import Agent from "./pages/Agent";
 import ResetPassword from "./pages/ResetPassword";
 import Gerar from "./pages/Gerar";
 import Aprovados from "./pages/Aprovados";
+import Ranking from "./pages/Ranking";
 import AdminCasas from "./pages/admin/Casas";
 import AdminCampanhas from "./pages/admin/Campanhas";
 import AdminPresets from "./pages/admin/Presets";
@@ -40,6 +41,7 @@ const App = () => (
           <Route path="/gerar" element={<Gerar />} />
           <Route path="/casa/:slug" element={<CasaDashboard />} />
           <Route path="/casa/:slug/aprovados" element={<Aprovados />} />
+          <Route path="/ranking" element={<Ranking />} />
           <Route path="/admin/casas" element={<AdminCasas />} />
           <Route path="/admin/:slug/campanhas" element={<AdminCampanhas />} />
           <Route path="/admin/:slug/presets" element={<AdminPresets />} />

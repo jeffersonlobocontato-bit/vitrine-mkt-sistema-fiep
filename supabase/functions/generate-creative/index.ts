@@ -233,6 +233,7 @@ Deno.serve(async (req) => {
         campanha_id: campanha.id,
         campanha_item_id: item.id,
         preset_id: preset.id,
+        created_by: authResult.userId !== 'service' ? authResult.userId : null,
         topic_title: `${campanha.nome} — ${item.nome}`,
         topic_summary: unidade ? `Unidade: ${unidade.nome} (${unidade.cidade})` : null,
       })

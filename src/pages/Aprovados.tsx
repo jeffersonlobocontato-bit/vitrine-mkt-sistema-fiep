@@ -85,9 +85,10 @@ const Aprovados = () => {
     load();
   }, [load]);
 
-  const download = async (path: string) => {
+  const download = async (path: string, creativeId?: string) => {
     const { data } = await supabase.storage.from("instagram-creatives").createSignedUrl(path, 60);
     if (data) window.open(data.signedUrl, "_blank");
+    if (creativeId && user && casa) await db.from("creative_downloads").insert({ creative_id: creativeId, user_id: user.id, casa_id: casa.id });
   };
 
   if (loading || !casa) return <Loader2 className="w-6 h-6 animate-spin m-8" />;
@@ -142,7 +143,7 @@ const Aprovados = () => {
                         {cr.final_image_urls.map((path, i) => (
                           <button
                             key={path}
-                            onClick={() => download(path)}
+                            onClick={() => download(path, cr.id)}
                             className="text-xs px-2 py-1 rounded-md border border-input flex items-center gap-1 hover:bg-muted"
                           >
                             <Download className="w-3 h-3" /> {cr.final_image_urls.length > 1 ? `#${i + 1}` : "Baixar"}
@@ -175,7 +176,7 @@ const Aprovados = () => {
                       {cr.final_image_urls.map((path, i) => (
                         <button
                           key={path}
-                          onClick={() => download(path)}
+                          onClick={() => download(path, cr.id)}
                           className="text-xs px-2 py-1 rounded-md border border-input flex items-center gap-1 hover:bg-muted"
                         >
                           <Download className="w-3 h-3" /> {cr.final_image_urls.length > 1 ? `#${i + 1}` : "Baixar"}

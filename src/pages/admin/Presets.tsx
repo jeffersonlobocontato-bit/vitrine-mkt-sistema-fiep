@@ -42,7 +42,7 @@ interface RefFile {
 const AdminPresets = () => {
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
-  const { loading, hasCasaRole, isPlatformAdmin, casas } = useCasaAcesso();
+  const { loading, user, hasCasaRole, isPlatformAdmin, casas } = useCasaAcesso();
   const casa = casas.find((c) => c.slug === slug);
   const canManage = casa ? isPlatformAdmin || hasCasaRole(casa.id, "designer") : false;
 
@@ -91,6 +91,7 @@ const AdminPresets = () => {
       casa_id: casa.id,
       name: newName.trim(),
       template_locked: true,
+      created_by: user?.id ?? null,
       template_spec: {
         card: emptySpec(1080, 1350),
         carousel: emptySpec(1080, 1350),
