@@ -18,7 +18,7 @@ const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY)
 
-type TemplateField = { key: string; label: string; maxLines?: number }
+type TemplateField = { key: string; label: string; maxLines?: number; dataBound?: boolean }
 type FormatTemplateSpec = { width: number; height: number; fields: TemplateField[]; imageSlot?: { x: number; y: number; w: number; h: number } }
 
 type Preset = {
@@ -174,8 +174,10 @@ Deno.serve(async (req) => {
       campanha_item_id?: string
       format?: 'card' | 'carousel' | 'story'
       preset_id?: string
+      contact_keys?: string[]
+      brief?: string
     }
-    const { campanha_id, campanha_item_id, format, preset_id } = body
+    const { campanha_id, campanha_item_id, format, preset_id, contact_keys, brief } = body
     if (!campanha_id || !campanha_item_id || !format || !preset_id) {
       throw Object.assign(new Error('campanha_id, campanha_item_id, format e preset_id são obrigatórios'), { status: 400 })
     }
@@ -214,6 +216,14 @@ Deno.serve(async (req) => {
       const { data: u } = await admin.from('unidades').select('nome, cidade, contatos').eq('id', item.unidade_id).single()
       unidade = u ?? null
     }
+
+    // Contato: nunca escrito/inventado pela IA — vem da unidade (por_unidade) ou do contato
+    // geral do item (geral), e só entram os campos que o usuário escolheu na tela de geração.
+    const CONTACT_LABELS: Record<string, string> = { telefone: 'Tel', whatsapp: 'WhatsApp', email: 'E-mail', endereco: 'Endereço' }
+    const contactSource: Record<string, string> =
+      unidade?.contatos ?? (item.dados as { contato_geral?: Record<string, string> })?.contato_geral ?? {}
+    const chosenKeys = (contact_keys?.length ? contact_keys : Object.keys(contactSource)).filter((k) => contactSource[k])
+    const contactText = chosenKeys.map((k) => `${CONTACT_LABELS[k] ?? k}: ${contactSource[k]}`).join('  ·  ')
 
     const { data: run, error: runErr } = await admin
       .from('instagram_runs')
@@ -281,10 +291,12 @@ Deno.serve(async (req) => {
 
     // Schema dinâmico: um campo de string por campo do template_spec, nada de layout —
     // a IA só escreve o texto que cabe em cada caixa já desenhada pelo designer.
+    // Campos "dataBound" (ex.: contato) ficam de fora — são preenchidos com dado real, não pela IA.
+    const aiFields = spec.fields.filter((f) => !f.dataBound)
     const fieldProps = Object.fromEntries(
-      spec.fields.map((f) => [f.key, { type: 'string', description: `${f.label}${f.maxLines ? ` — no máx. ${f.maxLines} linha(s), seja bem conciso` : ''}` }]),
+      aiFields.map((f) => [f.key, { type: 'string', description: `${f.label}${f.maxLines ? ` — no máx. ${f.maxLines} linha(s), seja bem conciso` : ''}` }]),
     )
-    const slideSchema = { type: 'object', properties: fieldProps, required: spec.fields.map((f) => f.key) }
+    const slideSchema = { type: 'object', properties: fieldProps, required: aiFields.map((f) => f.key) }
     const slideCount = format === 'carousel' ? Math.max(2, preset.carousel_slides || 4) : 1
 
     const itemContext =
@@ -308,7 +320,8 @@ Deno.serve(async (req) => {
           content:
             `Campanha: ${campanha.nome}\n${itemContext}\n\n` +
             `Gere ${slideCount} slide(s) para o formato "${format}". Cada slide segue exatamente os mesmos campos.` +
-            (format === 'carousel' ? ' Varie o conteúdo entre os slides mantendo uma progressão lógica (gancho no primeiro, fechamento/contato no último).' : ''),
+            (format === 'carousel' ? ' Varie o conteúdo entre os slides mantendo uma progressão lógica (gancho no primeiro, fechamento/contato no último).' : '') +
+            (brief?.trim() ? `\n\nFoco pedido para esta geração (direciona o conteúdo, nunca muda o layout nem ignora as regras acima): ${brief.trim()}` : ''),
         },
       ],
       'preencher_template',
@@ -332,8 +345,14 @@ Deno.serve(async (req) => {
       .limit(8)
     const pool = (bankImages ?? []).map((b) => b.storage_path as string)
 
+    const dataBoundFields = spec.fields.filter((f) => f.dataBound)
     let imageBudget = preset.image_budget ?? 6
-    const slides = draft.slides.map((values, i) => ({ order: i + 1, values }))
+    const slides = draft.slides.map((values, i) => ({
+      order: i + 1,
+      values: dataBoundFields.length
+        ? { ...values, ...Object.fromEntries(dataBoundFields.map((f) => [f.key, contactText])) }
+        : values,
+    }))
     if (spec.imageSlot) {
       for (let i = 0; i < slides.length; i++) {
         if (pool.length > 0) {

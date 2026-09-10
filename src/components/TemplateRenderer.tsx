@@ -13,6 +13,9 @@ export interface TemplateField {
   color?: string;
   align?: "left" | "center" | "right";
   maxLines?: number;
+  /** true = preenchido com dado real (ex.: contato da unidade), nunca escrito pela IA —
+   * o usuário escolhe quais dados entram aqui na tela de geração. */
+  dataBound?: boolean;
 }
 
 export interface ImageSlot {

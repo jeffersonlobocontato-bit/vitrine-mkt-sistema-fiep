@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Trash2, Plus, Image as ImageIcon } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, TemplateField } from "@/components/TemplateRenderer";
 
 interface Props {
@@ -233,6 +234,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
                   value={selectedField.maxLines ?? 3}
                   onChange={(e) => updateField(selectedField.key, (f) => ({ ...f, maxLines: Number(e.target.value) }))}
                   placeholder="Nº máx. de linhas"
+                />
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-border">
+                <div>
+                  <Label className="text-xs font-medium">Campo de contato</Label>
+                  <p className="text-[10px] text-muted-foreground">Preenchido com o contato real escolhido na geração — a IA nunca escreve este campo.</p>
+                </div>
+                <Switch
+                  checked={selectedField.dataBound ?? false}
+                  onCheckedChange={(checked) => updateField(selectedField.key, (f) => ({ ...f, dataBound: checked }))}
                 />
               </div>
             </CardContent>
