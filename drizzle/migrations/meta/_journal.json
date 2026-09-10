@@ -43,6 +43,13 @@
       "when": 1788967206820,
       "tag": "0005_knowledge_docs_storage_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789200000000,
+      "tag": "0006_multi_casa_foundation",
+      "breakpoints": true
     }
   ]
 }

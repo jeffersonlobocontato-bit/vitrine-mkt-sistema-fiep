@@ -10,6 +10,13 @@ import Library from "./pages/Library";
 import Costs from "./pages/Costs";
 import Agent from "./pages/Agent";
 import ResetPassword from "./pages/ResetPassword";
+import Gerar from "./pages/Gerar";
+import AdminCasas from "./pages/admin/Casas";
+import AdminCampanhas from "./pages/admin/Campanhas";
+import AdminPresets from "./pages/admin/Presets";
+import AdminUsuarios from "./pages/admin/Usuarios";
+import AdminPublicacao from "./pages/admin/Publicacao";
+import AdminBiblioteca from "./pages/admin/Biblioteca";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +35,13 @@ const App = () => (
           <Route path="/custos" element={<Costs />} />
           <Route path="/agente" element={<Agent />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/gerar" element={<Gerar />} />
+          <Route path="/admin/casas" element={<AdminCasas />} />
+          <Route path="/admin/:slug/campanhas" element={<AdminCampanhas />} />
+          <Route path="/admin/:slug/presets" element={<AdminPresets />} />
+          <Route path="/admin/:slug/usuarios" element={<AdminUsuarios />} />
+          <Route path="/admin/:slug/publicacao" element={<AdminPublicacao />} />
+          <Route path="/admin/:slug/biblioteca" element={<AdminBiblioteca />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

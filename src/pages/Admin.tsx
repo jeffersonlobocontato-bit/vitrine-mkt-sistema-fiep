@@ -155,6 +155,9 @@ const Admin = () => {
               </Link>
             </Button>
             <Button variant="outline" asChild>
+              <Link to="/admin/casas">Casas (Sistema Fiep)</Link>
+            </Button>
+            <Button variant="outline" asChild>
               <Link to="/agente">Agente</Link>
             </Button>
             <Button variant="outline" asChild>
