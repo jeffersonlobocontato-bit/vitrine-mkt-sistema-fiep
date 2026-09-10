@@ -13,6 +13,9 @@ export interface TemplateField {
   color?: string;
   align?: "left" | "center" | "right";
   maxLines?: number;
+  /** true = preenchido com dado real (ex.: contato da unidade), nunca escrito pela IA —
+   * o usuário escolhe quais dados entram aqui na tela de geração. */
+  dataBound?: boolean;
 }
 
 export interface ImageSlot {
@@ -104,10 +107,23 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
               height: `${slot.h}%`,
               overflow: "hidden",
               borderRadius: slotBorderRadius,
-              boxShadow: slot.borderColor ? `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}` : undefined,
             }}
           >
             <img src={imageUrl} alt="" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            {/* Moldura por cima da foto: um box-shadow no MESMO elemento da <img> ficaria escondido atrás
+                dela (o filho sempre pinta sobre o background/box-shadow do próprio pai); por isso a borda
+                é um overlay position:absolute separado, que entra depois da foto na ordem de pintura. */}
+            {slot.borderColor && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: slotBorderRadius,
+                  boxShadow: `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}`,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
           </div>
         )}
 

@@ -21,8 +21,10 @@ const FORMATS: { id: Format; label: string }[] = [
 ];
 
 interface Campanha { id: string; nome: string; escopo: "por_unidade" | "geral"; ativo: boolean }
-interface Item { id: string; nome: string; unidade_id: string | null; ativo: boolean }
+interface Item { id: string; nome: string; unidade_id: string | null; ativo: boolean; dados: Record<string, unknown> }
 interface Preset { id: string; name: string; template_spec: Partial<Record<Format, FormatTemplateSpec>> }
+
+const CONTACT_LABELS: Record<string, string> = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", endereco: "Endereço" };
 interface Slide { order: number; values: Record<string, string>; image_url?: string }
 interface Creative { id: string; format: Format; caption: string; hashtags: string[]; slides: Slide[]; status: string; final_image_urls: string[]; preset_id: string }
 
@@ -40,6 +42,9 @@ const Gerar = () => {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetId, setPresetId] = useState<string>("");
   const [format, setFormat] = useState<Format>("card");
+  const [contactOptions, setContactOptions] = useState<Record<string, string>>({});
+  const [contactKeys, setContactKeys] = useState<string[]>([]);
+  const [brief, setBrief] = useState("");
   const [generating, setGenerating] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [creative, setCreative] = useState<Creative | null>(null);
@@ -75,9 +80,25 @@ const Gerar = () => {
 
   useEffect(() => {
     if (!campanhaId) return setItens([]);
-    db.from("campanha_itens").select("id, nome, unidade_id, ativo").eq("campanha_id", campanhaId).eq("ativo", true).order("nome").then(({ data }: any) => setItens((data ?? []) as Item[]));
+    db.from("campanha_itens").select("id, nome, unidade_id, ativo, dados").eq("campanha_id", campanhaId).eq("ativo", true).order("nome").then(({ data }: any) => setItens((data ?? []) as Item[]));
     setItemId("");
   }, [campanhaId]);
+
+  useEffect(() => {
+    const item = itens.find((i) => i.id === itemId);
+    if (!item) return setContactOptions({});
+    (async () => {
+      let source: Record<string, string> = {};
+      if (item.unidade_id) {
+        const { data } = await db.from("unidades").select("contatos").eq("id", item.unidade_id).single();
+        source = (data?.contatos as Record<string, string>) ?? {};
+      } else {
+        source = (item.dados?.contato_geral as Record<string, string>) ?? {};
+      }
+      setContactOptions(source);
+      setContactKeys(Object.keys(source));
+    })();
+  }, [itemId, itens]);
 
   const validPresets = presets.filter((p) => (p.template_spec?.[format]?.fields?.length ?? 0) > 0);
   useEffect(() => {
@@ -102,7 +123,7 @@ const Gerar = () => {
     setCreative(null);
     try {
       const { data, error } = await supabase.functions.invoke("generate-creative", {
-        body: { campanha_id: campanhaId, campanha_item_id: itemId, format, preset_id: presetId },
+        body: { campanha_id: campanhaId, campanha_item_id: itemId, format, preset_id: presetId, contact_keys: contactKeys, brief: brief.trim() || undefined },
       });
       if (error) {
         const ctx = (error as { context?: Response }).context;
@@ -245,6 +266,36 @@ const Gerar = () => {
               {validPresets.length === 0 && (
                 <p className="text-xs text-destructive">Nenhum preset com esse formato configurado ainda para esta Casa — peça ao designer para montar um em Admin → Presets.</p>
               )}
+
+              {activeSpec?.fields.some((f) => f.dataBound) && Object.keys(contactOptions).length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">Contato a exibir no card</label>
+                  <div className="flex flex-wrap gap-3">
+                    {Object.entries(contactOptions).map(([key, value]) => (
+                      <label key={key} className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={contactKeys.includes(key)}
+                          onChange={(e) =>
+                            setContactKeys((prev) => (e.target.checked ? [...prev, key] : prev.filter((k) => k !== key)))
+                          }
+                        />
+                        {CONTACT_LABELS[key] ?? key}: {value}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Foco desta geração (opcional)</label>
+                <textarea
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-16"
+                  value={brief}
+                  onChange={(e) => setBrief(e.target.value)}
+                  placeholder='Ex.: "foque no risco psicossocial" ou "mencione que é gratuito pra associados" — direciona só o texto, nunca o layout nem as regras da campanha.'
+                />
+              </div>
 
               <Button onClick={generate} disabled={generating || !campanhaId || !itemId || validPresets.length === 0} className="w-full">
                 {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
