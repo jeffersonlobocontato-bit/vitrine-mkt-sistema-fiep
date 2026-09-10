@@ -423,6 +423,7 @@ export type Database = {
           cost_brl: number
           cost_usd: number
           created_at: string
+          created_by: string | null
           error_message: string | null
           id: string
           image_count: number
@@ -442,6 +443,7 @@ export type Database = {
           cost_brl?: number
           cost_usd?: number
           created_at?: string
+          created_by?: string | null
           error_message?: string | null
           id?: string
           image_count?: number
@@ -461,6 +463,7 @@ export type Database = {
           cost_brl?: number
           cost_usd?: number
           created_at?: string
+          created_by?: string | null
           error_message?: string | null
           id?: string
           image_count?: number
