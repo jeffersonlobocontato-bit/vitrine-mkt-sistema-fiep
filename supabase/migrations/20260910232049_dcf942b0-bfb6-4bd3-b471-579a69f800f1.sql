@@ -1,0 +1,1 @@
+ALTER TABLE public.instagram_runs ADD COLUMN IF NOT EXISTS created_by uuid; NOTIFY pgrst, 'reload schema';
