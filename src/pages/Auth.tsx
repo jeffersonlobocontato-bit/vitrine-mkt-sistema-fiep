@@ -17,10 +17,10 @@ const Auth = () => {
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session) navigate("/admin", { replace: true });
+      if (session) navigate("/", { replace: true });
     });
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) navigate("/admin", { replace: true });
+      if (session) navigate("/", { replace: true });
     });
     return () => data.subscription.unsubscribe();
   }, [navigate]);
@@ -52,7 +52,7 @@ const Auth = () => {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: window.location.origin + "/admin" },
+          options: { emailRedirectTo: window.location.origin },
         });
         if (error) throw error;
         if (!data.session) toast.success("Conta criada! Confirme seu e-mail para entrar.");
