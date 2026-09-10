@@ -44,7 +44,7 @@ const AdminUsuarios = () => {
 
   // cadastro de novo usuário
   const [newUser, setNewUser] = useState({ nome: "", email: "", senha: "" });
-  const [newScope, setNewScope] = useState<"casas" | "unidade">("casas");
+  const [newScope, setNewScope] = useState<"casas" | "unidade" | "admin">("casas");
   const [newCasaIds, setNewCasaIds] = useState<string[]>([]);
   const [newRole, setNewRole] = useState<CasaRole>("social_media");
   const [newUnidadeId, setNewUnidadeId] = useState("");
@@ -139,6 +139,7 @@ const AdminUsuarios = () => {
         casa_ids: newScope === "casas" ? newCasaIds : [],
         role: newRole,
         unidade_id: newScope === "unidade" ? newUnidadeId : null,
+        platform_admin: newScope === "admin",
       },
     });
     setCreating(false);
@@ -212,12 +213,21 @@ const AdminUsuarios = () => {
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" variant={newScope === "casas" ? "default" : "outline"} onClick={() => setNewScope("casas")}>Casa(s)</Button>
               <Button size="sm" variant={newScope === "unidade" ? "default" : "outline"} onClick={() => setNewScope("unidade")}>Unidade (vendas)</Button>
+              {isPlatformAdmin && (
+                <Button size="sm" variant={newScope === "admin" ? "default" : "outline"} onClick={() => setNewScope("admin")}>
+                  Acesso total (administrador)
+                </Button>
+              )}
             </div>
 
-            {newScope === "casas" ? (
+            {newScope === "admin" ? (
+              <div className="rounded-lg border border-border p-3 text-sm text-muted-foreground">
+                A pessoa terá acesso total ao sistema: todas as Casas, unidades, agente, biblioteca e custos.
+              </div>
+            ) : newScope === "casas" ? (
               <div className="space-y-3 rounded-lg border border-border p-3">
                 <div>
                   <Label className="text-xs font-medium">Casa(s)</Label>

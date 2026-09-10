@@ -24,6 +24,7 @@ Deno.serve(async (req) => {
       casa_ids?: string[]
       role?: 'designer' | 'social_media' | 'gestor'
       unidade_id?: string | null
+      platform_admin?: boolean
     }
 
     const email = (body.email ?? '').trim().toLowerCase()
@@ -89,6 +90,15 @@ Deno.serve(async (req) => {
       const { error } = await admin.from('user_units').insert({ user_id: userId, unidade_id: unidadeId })
       if (error && !/duplicate/i.test(error.message)) return json({ error: error.message }, 400)
     }
+
+    // acesso total: somente admin da plataforma pode conceder
+    if (body.platform_admin && isPlatformAdmin) {
+      const { error } = await admin
+        .from('user_roles')
+        .upsert({ user_id: userId, role: 'admin' }, { onConflict: 'user_id,role' })
+      if (error) return json({ error: error.message }, 400)
+    }
+
 
     return json({ user_id: userId, created: !createErr })
   } catch (e) {
