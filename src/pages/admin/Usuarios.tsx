@@ -1,90 +1,118 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { useCasaAcesso } from "@/hooks/useCasaAcesso";
+import { useCasaAcesso, type CasaRole } from "@/hooks/useCasaAcesso";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Trash2, Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 
-// casa_members/user_units/unidades ainda não estão no types.ts gerado.
+// casa_members/user_units/unidades/profiles ainda não estão totalmente no types.ts gerado.
 const db = supabase as any;
 
-type CasaRole = "designer" | "social_media" | "gestor";
+interface MemberRow { id: string; user_id: string; casa_id: string; role: CasaRole }
+interface UnitLinkRow { id: string; user_id: string; unidade_id: string }
+interface Unidade { id: string; casa_id: string; nome: string; cidade: string }
+interface Profile { id: string; email: string }
 
-interface MemberRow {
-  id: string;
-  user_id: string;
-  role: CasaRole;
-  profiles: { email: string; display_name: string | null } | null;
-}
-interface UnitLinkRow {
-  id: string;
-  user_id: string;
-  unidade_id: string;
-  unidades: { nome: string; cidade: string } | null;
-  profiles: { email: string; display_name: string | null } | null;
-}
-interface Unidade {
-  id: string;
-  nome: string;
-  cidade: string;
-}
-
-const ROLE_LABEL: Record<CasaRole, string> = { designer: "Designer", social_media: "Social media", gestor: "Gestor" };
+const ROLE_LABEL: Record<CasaRole, string> = { designer: "Designer (total)", social_media: "Social media (gerar criativos)", gestor: "Gestor" };
 
 const AdminUsuarios = () => {
   const navigate = useNavigate();
-  const { slug } = useParams<{ slug: string }>();
-  const { loading, hasCasaRole, isPlatformAdmin, casas } = useCasaAcesso();
-  const casa = casas.find((c) => c.slug === slug);
+  const { loading, isPlatformAdmin, casaMemberships, casas } = useCasaAcesso();
+
+  const manageableCasas = isPlatformAdmin
+    ? casas
+    : casas.filter((c) => casaMemberships.some((m) => m.casa_id === c.id && m.role === "gestor"));
+  const canView = isPlatformAdmin || manageableCasas.length > 0;
 
   const [members, setMembers] = useState<MemberRow[]>([]);
-  const [units, setUnits] = useState<Unidade[]>([]);
+  const [unidades, setUnidades] = useState<Unidade[]>([]);
   const [unitLinks, setUnitLinks] = useState<UnitLinkRow[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [newMember, setNewMember] = useState({ user_id: "", role: "social_media" as CasaRole });
-  const [newLink, setNewLink] = useState({ user_id: "", unidade_id: "" });
 
-  const canManage = casa ? isPlatformAdmin || hasCasaRole(casa.id, "gestor") : false;
+  const [scope, setScope] = useState<"casas" | "unidade">("casas");
+  const [email, setEmail] = useState("");
+  const [selectedCasaIds, setSelectedCasaIds] = useState<string[]>([]);
+  const [role, setRole] = useState<CasaRole>("social_media");
+  const [selectedUnidadeId, setSelectedUnidadeId] = useState("");
 
   const load = useCallback(async () => {
-    if (!casa) return;
-    const [{ data: m }, { data: u }, { data: ul }] = await Promise.all([
-      db.from("casa_members").select("id, user_id, role, profiles(email, display_name)").eq("casa_id", casa.id),
-      db.from("unidades").select("id, nome, cidade").eq("casa_id", casa.id).order("nome"),
-      db
-        .from("user_units")
-        .select("id, user_id, unidade_id, unidades!inner(nome, cidade, casa_id), profiles(email, display_name)")
-        .eq("unidades.casa_id", casa.id),
+    const casaIds = manageableCasas.map((c) => c.id);
+    if (casaIds.length === 0) return;
+    const [{ data: m }, { data: u }] = await Promise.all([
+      db.from("casa_members").select("id, user_id, casa_id, role").in("casa_id", casaIds),
+      db.from("unidades").select("id, casa_id, nome, cidade").in("casa_id", casaIds).order("nome"),
     ]);
     setMembers((m ?? []) as MemberRow[]);
-    setUnits((u ?? []) as Unidade[]);
+    setUnidades((u ?? []) as Unidade[]);
+
+    const unidadeIds = ((u ?? []) as Unidade[]).map((x) => x.id);
+    const { data: ul } = unidadeIds.length
+      ? await db.from("user_units").select("id, user_id, unidade_id").in("unidade_id", unidadeIds)
+      : { data: [] };
     setUnitLinks((ul ?? []) as UnitLinkRow[]);
-  }, [casa]);
+
+    const userIds = [...new Set([...(m ?? []).map((x: MemberRow) => x.user_id), ...((ul ?? []) as UnitLinkRow[]).map((x) => x.user_id)])];
+    if (userIds.length > 0) {
+      const { data: p } = await db.from("profiles").select("id, email").in("id", userIds);
+      setProfiles(Object.fromEntries(((p ?? []) as Profile[]).map((x) => [x.id, x.email])));
+    }
+  }, [manageableCasas]);
 
   useEffect(() => {
-    if (casa) load();
-  }, [casa, load]);
+    if (!loading) load();
+  }, [loading, load]);
 
   useEffect(() => {
-    if (!loading && casa && !canManage) navigate("/admin", { replace: true });
-  }, [loading, casa, canManage, navigate]);
+    if (!loading && !canView) navigate("/", { replace: true });
+  }, [loading, canView, navigate]);
 
-  const addMember = async () => {
-    if (!casa || !newMember.user_id.trim()) return toast.error("Informe o ID do usuário");
+  const resolveUserId = async (): Promise<string | null> => {
+    if (!email.trim()) {
+      toast.error("Informe o e-mail do usuário");
+      return null;
+    }
+    const { data, error } = await db.from("profiles").select("id").eq("email", email.trim()).maybeSingle();
+    if (error || !data) {
+      toast.error("Usuário não encontrado — ele precisa ter feito login pelo menos uma vez no sistema");
+      return null;
+    }
+    return data.id as string;
+  };
+
+  const linkCasas = async () => {
+    if (selectedCasaIds.length === 0) return toast.error("Selecione ao menos uma Casa");
+    const userId = await resolveUserId();
+    if (!userId) return;
     setBusy(true);
     const { error } = await db
       .from("casa_members")
-      .insert({ casa_id: casa.id, user_id: newMember.user_id.trim(), role: newMember.role });
+      .upsert(selectedCasaIds.map((casaId) => ({ casa_id: casaId, user_id: userId, role })), { onConflict: "casa_id,user_id" });
     setBusy(false);
     if (error) return toast.error(error.message);
-    setNewMember({ user_id: "", role: "social_media" });
-    toast.success("Membro adicionado");
+    setEmail("");
+    setSelectedCasaIds([]);
+    toast.success("Acesso concedido");
+    await load();
+  };
+
+  const linkUnidade = async () => {
+    if (!selectedUnidadeId) return toast.error("Selecione a unidade");
+    const userId = await resolveUserId();
+    if (!userId) return;
+    setBusy(true);
+    const { error } = await db.from("user_units").insert({ user_id: userId, unidade_id: selectedUnidadeId });
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    setEmail("");
+    setSelectedUnidadeId("");
+    toast.success("Vínculo criado");
     await load();
   };
 
@@ -94,146 +122,171 @@ const AdminUsuarios = () => {
     await load();
   };
 
-  const addLink = async () => {
-    if (!newLink.user_id.trim() || !newLink.unidade_id) return toast.error("Informe o ID do usuário e a unidade");
-    setBusy(true);
-    const { error } = await db.from("user_units").insert({ user_id: newLink.user_id.trim(), unidade_id: newLink.unidade_id });
-    setBusy(false);
-    if (error) return toast.error(error.message);
-    setNewLink({ user_id: "", unidade_id: "" });
-    toast.success("Vínculo criado");
-    await load();
-  };
-
   const removeLink = async (id: string) => {
     const { error } = await db.from("user_units").delete().eq("id", id);
     if (error) return toast.error(error.message);
     await load();
   };
 
-  if (loading || !casa) return <Loader2 className="w-6 h-6 animate-spin m-8" />;
-  if (!canManage) return null;
+  if (loading || !canView) return <Loader2 className="w-6 h-6 animate-spin m-8" />;
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild>
-            <Link to={`/casa/${casa.slug}`}><ArrowLeft className="w-4 h-4" /></Link>
+            <Link to="/"><ArrowLeft className="w-4 h-4" /></Link>
           </Button>
-          <h1 className="text-xl font-bold">Usuários — {casa.nome}</h1>
+          <UsersIcon className="w-5 h-5" />
+          <h1 className="text-xl font-bold">Usuários</h1>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 space-y-8">
+      <main className="container mx-auto px-4 py-8 space-y-8 max-w-3xl">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Time de marketing da Casa</CardTitle>
+            <CardTitle className="text-base">Vincular usuário</CardTitle>
             <CardDescription>
-              Designer tem acesso total (alimenta biblioteca e presets). Social media só gera cards. Cole o ID do
-              usuário (UUID do Supabase Auth) — ainda não há busca por e-mail nesta versão.
+              Informe o e-mail (o usuário precisa já ter feito login uma vez) e escolha o acesso: uma ou mais Casas
+              com um nível (Designer = total, Social media = só gerar criativos, Gestor = administra a Casa), ou uma
+              única unidade (relacionamento/vendas — só gera criativos daquela unidade).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Usuário</TableHead>
-                  <TableHead>Papel</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {members.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell>{m.profiles?.email ?? m.user_id}</TableCell>
-                    <TableCell><Badge variant="secondary">{ROLE_LABEL[m.role]}</Badge></TableCell>
-                    <TableCell>
-                      <Button size="icon" variant="ghost" onClick={() => removeMember(m.id)}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <div className="grid sm:grid-cols-3 gap-2 items-end pt-4 border-t border-border">
-              <div className="space-y-1">
-                <Label className="text-xs">ID do usuário</Label>
-                <Input value={newMember.user_id} onChange={(e) => setNewMember((p) => ({ ...p, user_id: e.target.value }))} placeholder="uuid" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Papel</Label>
-                <select
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  value={newMember.role}
-                  onChange={(e) => setNewMember((p) => ({ ...p, role: e.target.value as CasaRole }))}
-                >
-                  <option value="social_media">Social media</option>
-                  <option value="designer">Designer</option>
-                  <option value="gestor">Gestor</option>
-                </select>
-              </div>
-              <Button onClick={addMember} disabled={busy}><Plus className="w-4 h-4 mr-1" /> Adicionar</Button>
+            <div className="space-y-1">
+              <Label className="text-xs">E-mail do usuário</Label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pessoa@empresa.com" />
             </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Vendedores/autorizados por unidade</CardTitle>
-            <CardDescription>
-              Cada usuário só vê e gera cards da(s) unidade(s) vinculada(s) aqui, sempre com presets já prontos.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Usuário</TableHead>
-                  <TableHead>Unidade</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {unitLinks.map((l) => (
-                  <TableRow key={l.id}>
-                    <TableCell>{l.profiles?.email ?? l.user_id}</TableCell>
-                    <TableCell>{l.unidades ? `${l.unidades.nome} — ${l.unidades.cidade}` : l.unidade_id}</TableCell>
-                    <TableCell>
-                      <Button size="icon" variant="ghost" onClick={() => removeLink(l.id)}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <div className="grid sm:grid-cols-3 gap-2 items-end pt-4 border-t border-border">
-              <div className="space-y-1">
-                <Label className="text-xs">ID do usuário</Label>
-                <Input value={newLink.user_id} onChange={(e) => setNewLink((p) => ({ ...p, user_id: e.target.value }))} placeholder="uuid" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Unidade</Label>
-                <select
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  value={newLink.unidade_id}
-                  onChange={(e) => setNewLink((p) => ({ ...p, unidade_id: e.target.value }))}
-                >
-                  <option value="">Selecione</option>
-                  {units.map((u) => (
-                    <option key={u.id} value={u.id}>{u.nome} — {u.cidade}</option>
-                  ))}
-                </select>
-              </div>
-              <Button onClick={addLink} disabled={busy}><Plus className="w-4 h-4 mr-1" /> Vincular</Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant={scope === "casas" ? "default" : "outline"} onClick={() => setScope("casas")}>Casa(s)</Button>
+              <Button size="sm" variant={scope === "unidade" ? "default" : "outline"} onClick={() => setScope("unidade")}>Unidade (vendas)</Button>
             </div>
-            {units.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nenhuma unidade cadastrada ainda — crie em Campanhas/Unidades.</p>
+
+            {scope === "casas" ? (
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <div>
+                  <Label className="text-xs font-medium">Casa(s)</Label>
+                  <div className="flex flex-wrap gap-3 mt-1">
+                    {manageableCasas.map((c) => (
+                      <label key={c.id} className="flex items-center gap-1.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={selectedCasaIds.includes(c.id)}
+                          onChange={(e) =>
+                            setSelectedCasaIds((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)))
+                          }
+                        />
+                        {c.nome}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Nível de acesso</Label>
+                  <select
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as CasaRole)}
+                  >
+                    <option value="designer">Designer (total)</option>
+                    <option value="social_media">Social media (gerar criativos)</option>
+                    <option value="gestor">Gestor</option>
+                  </select>
+                </div>
+                <Button onClick={linkCasas} disabled={busy}><Plus className="w-4 h-4 mr-1" /> Conceder acesso</Button>
+              </div>
+            ) : (
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Unidade</Label>
+                  <select
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={selectedUnidadeId}
+                    onChange={(e) => setSelectedUnidadeId(e.target.value)}
+                  >
+                    <option value="">Selecione</option>
+                    {unidades.map((u) => {
+                      const casaNome = casas.find((c) => c.id === u.casa_id)?.nome ?? "";
+                      return <option key={u.id} value={u.id}>{casaNome} — {u.nome} ({u.cidade})</option>;
+                    })}
+                  </select>
+                  {unidades.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Nenhuma unidade cadastrada ainda nas Casas que você gerencia.</p>
+                  )}
+                </div>
+                <Button onClick={linkUnidade} disabled={busy}><Plus className="w-4 h-4 mr-1" /> Vincular à unidade</Button>
+              </div>
             )}
           </CardContent>
         </Card>
+
+        {manageableCasas.map((casa) => {
+          const casaMembers = members.filter((m) => m.casa_id === casa.id);
+          const casaUnidadeIds = unidades.filter((u) => u.casa_id === casa.id).map((u) => u.id);
+          const casaLinks = unitLinks.filter((l) => casaUnidadeIds.includes(l.unidade_id));
+          if (casaMembers.length === 0 && casaLinks.length === 0) return null;
+          return (
+            <Card key={casa.id}>
+              <CardHeader>
+                <CardTitle className="text-base">{casa.nome}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {casaMembers.length > 0 && (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Usuário</TableHead>
+                        <TableHead>Papel</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {casaMembers.map((m) => (
+                        <TableRow key={m.id}>
+                          <TableCell>{profiles[m.user_id] ?? m.user_id}</TableCell>
+                          <TableCell><Badge variant="secondary">{ROLE_LABEL[m.role]}</Badge></TableCell>
+                          <TableCell>
+                            <Button size="icon" variant="ghost" onClick={() => removeMember(m.id)}>
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+                {casaLinks.length > 0 && (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Usuário (vendas)</TableHead>
+                        <TableHead>Unidade</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {casaLinks.map((l) => {
+                        const u = unidades.find((x) => x.id === l.unidade_id);
+                        return (
+                          <TableRow key={l.id}>
+                            <TableCell>{profiles[l.user_id] ?? l.user_id}</TableCell>
+                            <TableCell>{u ? `${u.nome} — ${u.cidade}` : l.unidade_id}</TableCell>
+                            <TableCell>
+                              <Button size="icon" variant="ghost" onClick={() => removeLink(l.id)}>
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
       </main>
     </div>
   );

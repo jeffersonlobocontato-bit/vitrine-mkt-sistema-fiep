@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCasaAcesso, type Casa } from "@/hooks/useCasaAcesso";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, LogOut, Building2, HeartPulse, GraduationCap, Briefcase, ChevronRight, Settings, Trophy } from "lucide-react";
+import { Loader2, LogOut, Building2, HeartPulse, GraduationCap, Briefcase, ChevronRight, Settings, Trophy, Users } from "lucide-react";
 
 const CASA_ICON: Record<string, typeof Building2> = {
   fiep: Building2,
@@ -43,7 +43,7 @@ const CasaCard = ({ casa }: { casa: Casa }) => {
 const Index = () => {
   const navigate = useNavigate();
   const { loading, user, isPlatformAdmin, casaMemberships, casasAcessiveis } = useCasaAcesso();
-  const canViewRanking = isPlatformAdmin || casaMemberships.some((m) => m.role === "gestor");
+  const isGestorAnywhere = isPlatformAdmin || casaMemberships.some((m) => m.role === "gestor");
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth", { replace: true });
@@ -109,21 +109,38 @@ const Index = () => {
           </div>
         )}
 
-        {canViewRanking && (
-          <Link
-            to="/ranking"
-            className="group mt-8 flex items-center gap-4 rounded-2xl p-6 text-white shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
-            style={{ background: "linear-gradient(90deg, #1B2559, #2A6DF0)" }}
-          >
-            <div className="w-14 h-14 rounded-xl flex items-center justify-center bg-white/15">
-              <Trophy className="w-7 h-7" strokeWidth={1.75} />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-lg font-bold">Ranking de engajamento</h3>
-              <p className="text-sm text-white/80 mt-1">Gamificação por papel — designers, social media e relacionamento/vendas</p>
-            </div>
-            <ChevronRight className="w-5 h-5 transition-transform group-hover:translate-x-0.5" />
-          </Link>
+        {isGestorAnywhere && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mt-8">
+            <Link
+              to="/admin/usuarios"
+              className="group flex items-center gap-4 rounded-2xl p-6 text-white shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
+              style={{ background: "linear-gradient(90deg, #1B2559, #7AC142)" }}
+            >
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center bg-white/15">
+                <Users className="w-7 h-7" strokeWidth={1.75} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold">Usuários</h3>
+                <p className="text-sm text-white/80 mt-1">Vincular acesso por Casa ou por unidade (vendas)</p>
+              </div>
+              <ChevronRight className="w-5 h-5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+
+            <Link
+              to="/ranking"
+              className="group flex items-center gap-4 rounded-2xl p-6 text-white shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
+              style={{ background: "linear-gradient(90deg, #1B2559, #2A6DF0)" }}
+            >
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center bg-white/15">
+                <Trophy className="w-7 h-7" strokeWidth={1.75} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold">Ranking de engajamento</h3>
+                <p className="text-sm text-white/80 mt-1">Gamificação por papel — designers, social media e relacionamento/vendas</p>
+              </div>
+              <ChevronRight className="w-5 h-5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          </div>
         )}
       </main>
     </div>

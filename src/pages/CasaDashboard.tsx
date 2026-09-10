@@ -7,7 +7,6 @@ import {
   Sparkles,
   Megaphone,
   LayoutTemplate,
-  Users,
   Share2,
   BookOpen,
   ChevronRight,
@@ -84,13 +83,6 @@ const CasaDashboard = () => {
       description: "Manuais, padrões de copy e referências da marca",
       icon: BookOpen,
       visible: isDesigner,
-    },
-    {
-      to: `/admin/${casa.slug}/usuarios`,
-      label: "Usuários",
-      description: "Time de marketing e vínculo de vendedores às unidades",
-      icon: Users,
-      visible: isGestor,
     },
     {
       to: `/admin/${casa.slug}/publicacao`,

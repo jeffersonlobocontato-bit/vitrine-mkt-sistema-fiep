@@ -175,7 +175,7 @@ const AdminCampanhas = () => {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" asChild><Link to={`/admin/${casa.slug}/presets`}>Presets</Link></Button>
-            <Button variant="outline" asChild><Link to={`/admin/${casa.slug}/usuarios`}>Usuários</Link></Button>
+            <Button variant="outline" asChild><Link to="/admin/usuarios">Usuários</Link></Button>
             <Button variant="outline" asChild><Link to={`/admin/${casa.slug}/publicacao`}>Publicação</Link></Button>
           </div>
         </div>
