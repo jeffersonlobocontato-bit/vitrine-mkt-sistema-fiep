@@ -181,6 +181,7 @@ const Gerar = () => {
   const download = async (path: string, i: number) => {
     const { data } = await supabase.storage.from("instagram-creatives").createSignedUrl(path, 60);
     if (data) window.open(data.signedUrl, "_blank");
+    if (creative && user) await db.from("creative_downloads").insert({ creative_id: creative.id, user_id: user.id, casa_id: casaId });
   };
 
   const activeSpec = presets.find((p) => p.id === presetId)?.template_spec?.[format];
