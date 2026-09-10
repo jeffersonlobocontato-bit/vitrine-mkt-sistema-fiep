@@ -24,6 +24,7 @@ Deno.serve(async (req) => {
       casa_ids?: string[]
       role?: 'designer' | 'social_media' | 'gestor'
       unidade_id?: string | null
+      platform_admin?: boolean
     }
 
     const email = (body.email ?? '').trim().toLowerCase()
