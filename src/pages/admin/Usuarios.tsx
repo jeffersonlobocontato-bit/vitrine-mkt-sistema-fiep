@@ -42,6 +42,14 @@ const AdminUsuarios = () => {
   const [role, setRole] = useState<CasaRole>("social_media");
   const [selectedUnidadeId, setSelectedUnidadeId] = useState("");
 
+  // cadastro de novo usuário
+  const [newUser, setNewUser] = useState({ nome: "", email: "", senha: "" });
+  const [newScope, setNewScope] = useState<"casas" | "unidade">("casas");
+  const [newCasaIds, setNewCasaIds] = useState<string[]>([]);
+  const [newRole, setNewRole] = useState<CasaRole>("social_media");
+  const [newUnidadeId, setNewUnidadeId] = useState("");
+  const [creating, setCreating] = useState(false);
+
   const load = useCallback(async () => {
     const casaIds = manageableCasas.map((c) => c.id);
     if (casaIds.length === 0) return;
