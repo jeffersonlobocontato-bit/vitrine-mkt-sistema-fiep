@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toBlob } from "html-to-image";
 import { supabase } from "@/integrations/supabase/client";
 import { useCasaAcesso } from "@/hooks/useCasaAcesso";
@@ -28,6 +28,8 @@ interface Creative { id: string; format: Format; caption: string; hashtags: stri
 
 const Gerar = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const casaSlugHint = searchParams.get("casa");
   const { loading, user, casasAcessiveis } = useCasaAcesso();
 
   const [casaId, setCasaId] = useState<string | null>(null);
@@ -48,9 +50,11 @@ const Gerar = () => {
   useEffect(() => {
     if (!loading) {
       if (!user) return navigate("/auth", { replace: true });
-      if (casasAcessiveis.length === 1) setCasaId(casasAcessiveis[0].id);
+      const fromHint = casaSlugHint ? casasAcessiveis.find((c) => c.slug === casaSlugHint) : null;
+      if (fromHint) setCasaId(fromHint.id);
+      else if (casasAcessiveis.length === 1) setCasaId(casasAcessiveis[0].id);
     }
-  }, [loading, user, casasAcessiveis, navigate]);
+  }, [loading, user, casasAcessiveis, casaSlugHint, navigate]);
 
   const casa = casasAcessiveis.find((c) => c.id === casaId);
 
@@ -166,7 +170,7 @@ const Gerar = () => {
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild>
-            <Link to="/"><ArrowLeft className="w-4 h-4" /></Link>
+            <Link to={casaSlugHint ? `/casa/${casaSlugHint}` : "/"}><ArrowLeft className="w-4 h-4" /></Link>
           </Button>
           <h1 className="text-xl font-bold">Gerar criativo</h1>
         </div>
