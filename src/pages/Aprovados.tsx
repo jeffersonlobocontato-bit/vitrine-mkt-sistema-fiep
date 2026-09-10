@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useCasaAcesso } from "@/hooks/useCasaAcesso";
-import { Loader2, ArrowLeft, Download, CheckCircle2 } from "lucide-react";
+import { Loader2, ArrowLeft, Download, CheckCircle2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 // campanhas/instagram_runs(casa_id/campanha_id)/instagram_creatives(campanha_item_id) ainda não
 // estão totalmente no types.ts gerado.
@@ -21,6 +22,49 @@ interface Creative {
 }
 
 const FORMAT_LABEL: Record<string, string> = { card: "Card", carousel: "Carrossel", story: "Story" };
+
+const CreativeCard = ({
+  cr,
+  item,
+  thumb,
+  accent,
+  onDownload,
+  onDelete,
+}: {
+  cr: Creative;
+  item?: Item;
+  thumb?: string;
+  accent: string;
+  onDownload: (path: string, creativeId?: string) => void;
+  onDelete: (cr: Creative) => void;
+}) => (
+  <div className="rounded-xl bg-white border border-black/5 shadow-sm overflow-hidden flex flex-col">
+    <div className="aspect-[4/5] bg-muted">{thumb && <img src={thumb} alt="" className="w-full h-full object-cover" />}</div>
+    <div className="p-3 space-y-1 flex-1 flex flex-col">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: accent }}>
+          <CheckCircle2 className="w-3.5 h-3.5" /> {FORMAT_LABEL[cr.format]}
+        </div>
+        <button onClick={() => onDelete(cr)} className="text-muted-foreground hover:text-destructive" title="Excluir criativo">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      {item && <p className="text-xs font-medium truncate">{item.nome}</p>}
+      <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{cr.caption}</p>
+      <div className="flex flex-wrap gap-1 pt-1">
+        {cr.final_image_urls.map((path, i) => (
+          <button
+            key={path}
+            onClick={() => onDownload(path, cr.id)}
+            className="text-xs px-2 py-1 rounded-md border border-input flex items-center gap-1 hover:bg-muted"
+          >
+            <Download className="w-3 h-3" /> {cr.final_image_urls.length > 1 ? `#${i + 1}` : "Baixar"}
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
+);
 
 const Aprovados = () => {
   const navigate = useNavigate();
@@ -91,6 +135,17 @@ const Aprovados = () => {
     if (creativeId && user && casa) await db.from("creative_downloads").insert({ creative_id: creativeId, user_id: user.id, casa_id: casa.id });
   };
 
+  const remove = async (cr: Creative) => {
+    if (!window.confirm("Excluir este criativo aprovado? A imagem final também será apagada. Essa ação não pode ser desfeita.")) return;
+    if (cr.final_image_urls.length > 0) {
+      await supabase.storage.from("instagram-creatives").remove(cr.final_image_urls);
+    }
+    const { error } = await db.from("instagram_creatives").delete().eq("id", cr.id);
+    if (error) return toast.error(error.message);
+    setCreatives((prev) => prev.filter((c) => c.id !== cr.id));
+    toast.success("Criativo excluído");
+  };
+
   if (loading || !casa) return <Loader2 className="w-6 h-6 animate-spin m-8" />;
 
   const primary = casa.cores.primary ?? "#1B2559";
@@ -126,34 +181,17 @@ const Aprovados = () => {
           <section key={campanha.id} className="space-y-4">
             <h2 className="text-lg font-bold" style={{ color: primary }}>{campanha.nome}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {list.map((cr) => {
-                const item = itens.find((i) => i.id === cr.campanha_item_id);
-                return (
-                  <div key={cr.id} className="rounded-xl bg-white border border-black/5 shadow-sm overflow-hidden flex flex-col">
-                    <div className="aspect-[4/5] bg-muted">
-                      {thumbs[cr.id] && <img src={thumbs[cr.id]} alt="" className="w-full h-full object-cover" />}
-                    </div>
-                    <div className="p-3 space-y-1 flex-1 flex flex-col">
-                      <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: accent }}>
-                        <CheckCircle2 className="w-3.5 h-3.5" /> {FORMAT_LABEL[cr.format]}
-                      </div>
-                      {item && <p className="text-xs font-medium truncate">{item.nome}</p>}
-                      <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{cr.caption}</p>
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {cr.final_image_urls.map((path, i) => (
-                          <button
-                            key={path}
-                            onClick={() => download(path, cr.id)}
-                            className="text-xs px-2 py-1 rounded-md border border-input flex items-center gap-1 hover:bg-muted"
-                          >
-                            <Download className="w-3 h-3" /> {cr.final_image_urls.length > 1 ? `#${i + 1}` : "Baixar"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {list.map((cr) => (
+                <CreativeCard
+                  key={cr.id}
+                  cr={cr}
+                  item={itens.find((i) => i.id === cr.campanha_item_id)}
+                  thumb={thumbs[cr.id]}
+                  accent={accent}
+                  onDownload={download}
+                  onDelete={remove}
+                />
+              ))}
             </div>
           </section>
         ))}
@@ -163,28 +201,7 @@ const Aprovados = () => {
             <h2 className="text-lg font-bold text-muted-foreground">Sem campanha</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {semCampanha.map((cr) => (
-                <div key={cr.id} className="rounded-xl bg-white border border-black/5 shadow-sm overflow-hidden flex flex-col">
-                  <div className="aspect-[4/5] bg-muted">
-                    {thumbs[cr.id] && <img src={thumbs[cr.id]} alt="" className="w-full h-full object-cover" />}
-                  </div>
-                  <div className="p-3 space-y-1 flex-1 flex flex-col">
-                    <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: accent }}>
-                      <CheckCircle2 className="w-3.5 h-3.5" /> {FORMAT_LABEL[cr.format]}
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 flex-1">{cr.caption}</p>
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {cr.final_image_urls.map((path, i) => (
-                        <button
-                          key={path}
-                          onClick={() => download(path, cr.id)}
-                          className="text-xs px-2 py-1 rounded-md border border-input flex items-center gap-1 hover:bg-muted"
-                        >
-                          <Download className="w-3 h-3" /> {cr.final_image_urls.length > 1 ? `#${i + 1}` : "Baixar"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                <CreativeCard key={cr.id} cr={cr} thumb={thumbs[cr.id]} accent={accent} onDownload={download} onDelete={remove} />
               ))}
             </div>
           </section>
