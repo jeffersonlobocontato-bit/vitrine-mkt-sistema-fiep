@@ -1,97 +1,110 @@
-import { useState } from "react";
-import { AddProfileDialog } from "@/components/AddProfileDialog";
-import { ProfileCard } from "@/components/ProfileCard";
-import { StatsOverview } from "@/components/StatsOverview";
-import { AnalysisSection } from "@/components/AnalysisSection";
-import { Button } from "@/components/ui/button";
-import { Instagram, Plus, TrendingUp, Sparkles } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useCasaAcesso, type Casa } from "@/hooks/useCasaAcesso";
+import { supabase } from "@/integrations/supabase/client";
+import { Loader2, LogOut, Building2, HeartPulse, GraduationCap, Briefcase, ChevronRight, Settings } from "lucide-react";
+
+const CASA_ICON: Record<string, typeof Building2> = {
+  fiep: Building2,
+  sesi: HeartPulse,
+  senai: GraduationCap,
+  iel: Briefcase,
+};
+
+const CasaCard = ({ casa }: { casa: Casa }) => {
+  const Icon = CASA_ICON[casa.slug] ?? Building2;
+  const accent = casa.cores.accent ?? "#2A6DF0";
+  const primary = casa.cores.primary ?? "#1B2559";
+  return (
+    <Link
+      to={`/casa/${casa.slug}`}
+      className="group relative flex flex-col gap-4 rounded-2xl bg-white border border-black/5 p-6 shadow-sm transition-all hover:shadow-lg hover:-translate-y-0.5"
+    >
+      <div
+        className="w-14 h-14 rounded-xl flex items-center justify-center"
+        style={{ backgroundColor: `${accent}1A`, color: accent }}
+      >
+        <Icon className="w-7 h-7" strokeWidth={1.75} />
+      </div>
+      <div>
+        <h3 className="text-lg font-bold" style={{ color: primary }}>
+          {casa.nome}
+        </h3>
+        <p className="text-sm text-muted-foreground mt-1">Criativos, campanhas e biblioteca da Casa</p>
+      </div>
+      <div className="mt-auto flex items-center text-sm font-medium gap-1" style={{ color: accent }}>
+        Acessar <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+      </div>
+      <div className="absolute top-0 left-6 right-6 h-1 rounded-b-full" style={{ backgroundColor: accent }} />
+    </Link>
+  );
+};
 
 const Index = () => {
-  const [profiles, setProfiles] = useState<any[]>([]);
+  const navigate = useNavigate();
+  const { loading, user, isPlatformAdmin, casasAcessiveis } = useCasaAcesso();
 
-  const handleAddProfile = (url: string) => {
-    // Mock profile data - In production, this would call an API
-    const newProfile = {
-      id: Date.now().toString(),
-      username: url.split("/").pop() || "user",
-      url,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`,
-      followers: Math.floor(Math.random() * 100000) + 1000,
-      posts: Math.floor(Math.random() * 500) + 10,
-      engagement: (Math.random() * 10 + 1).toFixed(2),
-      addedAt: new Date().toISOString(),
-    };
-    setProfiles([...profiles, newProfile]);
-  };
+  useEffect(() => {
+    if (!loading && !user) navigate("/auth", { replace: true });
+  }, [loading, user, navigate]);
+
+  if (loading || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#EDEEF1]">
+        <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#1B2559" }} />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-glow">
-                <Instagram className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                  InstaAnalytics
-                </h1>
-                <p className="text-sm text-muted-foreground">Análise de Conteúdo Instagram</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" asChild>
-                <Link to="/admin">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Criativos IA
-                </Link>
-              </Button>
-              <AddProfileDialog onAdd={handleAddProfile}>
-                <Button className="bg-gradient-primary hover:opacity-90 transition-opacity">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Adicionar Perfil
-                </Button>
-              </AddProfileDialog>
-            </div>
+    <div className="min-h-screen bg-[#EDEEF1]">
+      <header className="text-white" style={{ backgroundColor: "#1B2559" }}>
+        <div className="container mx-auto px-6 py-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold tracking-[0.08em] uppercase" style={{ color: "#2A6DF0" }}>
+              Sistema Fiep
+            </p>
+            <h1 className="text-xl font-bold">Vitrine de Marketing</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            {isPlatformAdmin && (
+              <Link
+                to="/admin/casas"
+                className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white transition-colors px-3 py-2"
+              >
+                <Settings className="w-4 h-4" /> Administração
+              </Link>
+            )}
+            <button
+              onClick={() => supabase.auth.signOut().then(() => navigate("/auth"))}
+              className="flex items-center gap-1.5 text-sm text-white/80 hover:text-white transition-colors px-3 py-2"
+            >
+              <LogOut className="w-4 h-4" /> Sair
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        {profiles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-            <div className="w-24 h-24 rounded-3xl bg-gradient-card flex items-center justify-center mb-6 shadow-card">
-              <TrendingUp className="w-12 h-12 text-primary" />
-            </div>
-            <h2 className="text-3xl font-bold mb-4">Comece a Análise</h2>
-            <p className="text-muted-foreground max-w-md mb-8">
-              Adicione perfis do Instagram para analisar métricas de engajamento, 
-              identificar padrões de conteúdo e gerar insights valiosos.
-            </p>
-            <AddProfileDialog onAdd={handleAddProfile}>
-              <Button size="lg" className="bg-gradient-primary hover:opacity-90 transition-opacity">
-                <Plus className="w-5 h-5 mr-2" />
-                Adicionar Primeiro Perfil
-              </Button>
-            </AddProfileDialog>
+      <main className="container mx-auto px-6 py-12">
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold mb-1" style={{ color: "#1B2559" }}>
+            Escolha a Casa
+          </h2>
+          <div className="h-1 w-10 rounded-full mb-3" style={{ backgroundColor: "#2A6DF0" }} />
+          <p className="text-muted-foreground max-w-xl">
+            Cada Casa tem suas próprias campanhas, unidades, presets de arte e biblioteca de conhecimento.
+          </p>
+        </div>
+
+        {casasAcessiveis.length === 0 ? (
+          <div className="rounded-2xl bg-white border border-black/5 p-10 text-center text-muted-foreground">
+            Você ainda não tem acesso a nenhuma Casa. Peça ao administrador para te vincular em Admin → Usuários.
           </div>
         ) : (
-          <div className="space-y-8">
-            <StatsOverview profiles={profiles} />
-            
-            <div>
-              <h2 className="text-2xl font-bold mb-4">Perfis Monitorados</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {profiles.map((profile) => (
-                  <ProfileCard key={profile.id} profile={profile} />
-                ))}
-              </div>
-            </div>
-
-            <AnalysisSection profiles={profiles} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {casasAcessiveis.map((casa) => (
+              <CasaCard key={casa.id} casa={casa} />
+            ))}
           </div>
         )}
       </main>
