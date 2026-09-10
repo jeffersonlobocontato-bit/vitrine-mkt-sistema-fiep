@@ -11,6 +11,7 @@ import {
   Share2,
   BookOpen,
   ChevronRight,
+  CheckCircle2,
 } from "lucide-react";
 
 interface Tile {
@@ -54,6 +55,13 @@ const CasaDashboard = () => {
       label: "Gerar criativo",
       description: "Card, carrossel ou story a partir de um preset pronto",
       icon: Sparkles,
+      visible: true,
+    },
+    {
+      to: `/casa/${casa.slug}/aprovados`,
+      label: "Aprovados",
+      description: "Criativos já aprovados, organizados por campanha",
+      icon: CheckCircle2,
       visible: true,
     },
     {
