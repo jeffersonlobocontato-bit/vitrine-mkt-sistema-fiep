@@ -91,6 +91,15 @@ Deno.serve(async (req) => {
       if (error && !/duplicate/i.test(error.message)) return json({ error: error.message }, 400)
     }
 
+    // acesso total: somente admin da plataforma pode conceder
+    if (body.platform_admin && isPlatformAdmin) {
+      const { error } = await admin
+        .from('user_roles')
+        .upsert({ user_id: userId, role: 'admin' }, { onConflict: 'user_id,role' })
+      if (error) return json({ error: error.message }, 400)
+    }
+
+
     return json({ user_id: userId, created: !createErr })
   } catch (e) {
     return json({ error: (e as Error).message }, 500)
