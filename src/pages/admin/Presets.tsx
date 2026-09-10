@@ -101,12 +101,18 @@ const AdminPresets = () => {
     await load();
   };
 
-  const uploadReference = async (preset: Preset, kind: RefFile["kind"], file: File) => {
+  const uploadReference = async (preset: Preset, kind: RefFile["kind"], file: File, format?: "card" | "carousel" | "story") => {
     const path = `${preset.id}/${kind}-${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
     const { error: upErr } = await supabase.storage.from("preset-assets").upload(path, file);
     if (upErr) return toast.error(upErr.message);
     const { error } = await db.from("preset_reference_files").insert({ preset_id: preset.id, kind, storage_path: path });
     if (error) return toast.error(error.message);
+    // A arte de referência não é só um guia pro editor — vira o fundo de verdade usado
+    // na geração (logo, gradiente, textura de marca), por isso grava no template_spec.
+    if (kind === "arte_pronta" && format) {
+      const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1350);
+      await saveSpec(preset, format, { ...current, backgroundPath: path });
+    }
     toast.success("Arquivo enviado");
     await loadFiles(preset.id);
   };
@@ -170,7 +176,7 @@ const AdminPresets = () => {
                               type="file"
                               accept="image/*"
                               className="hidden"
-                              onChange={(e) => e.target.files?.[0] && uploadReference(preset, "arte_pronta", e.target.files[0])}
+                              onChange={(e) => e.target.files?.[0] && uploadReference(preset, "arte_pronta", e.target.files[0], f.id)}
                             />
                             <Button size="sm" variant="outline" asChild>
                               <span><Upload className="w-4 h-4 mr-1" /> Enviar arte</span>

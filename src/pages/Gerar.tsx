@@ -44,6 +44,7 @@ const Gerar = () => {
   const [runId, setRunId] = useState<string | null>(null);
   const [creative, setCreative] = useState<Creative | null>(null);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const exportRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -163,6 +164,14 @@ const Gerar = () => {
 
   const activeSpec = presets.find((p) => p.id === presetId)?.template_spec?.[format];
 
+  useEffect(() => {
+    if (!activeSpec?.backgroundPath) return setBackgroundUrl(null);
+    supabase.storage
+      .from("preset-assets")
+      .createSignedUrl(activeSpec.backgroundPath, 3600)
+      .then(({ data }) => setBackgroundUrl(data?.signedUrl ?? null));
+  }, [activeSpec?.backgroundPath]);
+
   if (loading) return <Loader2 className="w-6 h-6 animate-spin m-8" />;
 
   return (
@@ -258,6 +267,7 @@ const Gerar = () => {
                     <TemplateRenderer
                       spec={activeSpec}
                       values={slide.values}
+                      backgroundUrl={backgroundUrl}
                       imageUrl={slide.image_url ? imageUrls[slide.image_url] : undefined}
                       previewWidth={240}
                     />
@@ -267,6 +277,7 @@ const Gerar = () => {
                         ref={(el) => (exportRefs.current[i] = el)}
                         spec={activeSpec}
                         values={slide.values}
+                        backgroundUrl={backgroundUrl}
                         imageUrl={slide.image_url ? imageUrls[slide.image_url] : undefined}
                         previewWidth={1080}
                       />
