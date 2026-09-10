@@ -73,7 +73,9 @@ const AdminPresets = () => {
     for (const f of (data ?? []) as RefFile[]) {
       if (f.kind === "arte_pronta") {
         const { data: signed } = await supabase.storage.from("preset-assets").createSignedUrl(f.storage_path, 3600);
-        if (signed) setRefUrls((prev) => ({ ...prev, [`${presetId}:${f.storage_path}`]: signed.signedUrl }));
+        // Chave é o storage_path puro (já é único, contém preset_id) — resolve independente
+        // de qual formato está ativo na tela no momento do upload.
+        if (signed) setRefUrls((prev) => ({ ...prev, [f.storage_path]: signed.signedUrl }));
       }
     }
   };
@@ -145,10 +147,10 @@ const AdminPresets = () => {
         </p>
 
         {presets.map((preset) => {
-          const presetFiles = files[preset.id] ?? [];
           const spec = preset.template_spec[activeFormat] ?? emptySpec(1080, 1350);
-          const arteReferencia = presetFiles.find((f) => f.kind === "arte_pronta" && f.storage_path.includes(activeFormat));
-          const refUrl = arteReferencia ? refUrls[`${preset.id}:${arteReferencia.storage_path}`] : undefined;
+          // A arte de referência do formato ativo é a que está gravada em spec.backgroundPath
+          // (setada no upload — ver uploadReference), não precisa mais adivinhar por nome de arquivo.
+          const refUrl = spec.backgroundPath ? refUrls[spec.backgroundPath] : undefined;
 
           return (
             <Card key={preset.id}>
