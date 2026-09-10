@@ -10,6 +10,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { Loader2, Upload, Trash2, Download, Search, RefreshCw, FileText } from "lucide-react";
 
+// casa_id/campanha_id/unidade_id em knowledge_documents ainda não estão no types.ts gerado.
+const db = supabase as any;
+
 export const DOC_TYPES: { id: string; label: string }[] = [
   { id: "brand_manual", label: "Manual da marca" },
   { id: "design_system", label: "Design system" },
@@ -17,6 +20,7 @@ export const DOC_TYPES: { id: string; label: string }[] = [
   { id: "copy_semantic", label: "Padrão semântico de copy" },
   { id: "copy_syntactic", label: "Padrão sintático de copy" },
   { id: "copy_lexical", label: "Padrão lexical de copy" },
+  { id: "copy_reference", label: "Referência de texto" },
   { id: "policies", label: "Policies" },
   { id: "guardrails", label: "Guardrails" },
 ];
@@ -50,7 +54,16 @@ type Match = { title: string; doc_type: string; content: string; similarity: num
 
 const humanSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
-const KnowledgeLibrary = ({ presetId }: { presetId?: string | null }) => {
+interface KnowledgeLibraryProps {
+  presetId?: string | null;
+  /** Escopo multi-Casa: quando informado, os documentos ficam restritos/gravados nesse escopo
+   * (Casa, opcionalmente campanha e/ou unidade) em vez de globais. */
+  casaId?: string | null;
+  campanhaId?: string | null;
+  unidadeId?: string | null;
+}
+
+const KnowledgeLibrary = ({ presetId, casaId, campanhaId, unidadeId }: KnowledgeLibraryProps) => {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -64,10 +77,14 @@ const KnowledgeLibrary = ({ presetId }: { presetId?: string | null }) => {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from("knowledge_documents").select("*").order("created_at", { ascending: false });
+    let query = db.from("knowledge_documents").select("*").order("created_at", { ascending: false });
+    if (casaId) query = query.eq("casa_id", casaId);
+    if (campanhaId) query = query.eq("campanha_id", campanhaId);
+    if (unidadeId) query = query.eq("unidade_id", unidadeId);
+    const { data } = await query;
     setDocs((data ?? []) as unknown as Doc[]);
     setLoading(false);
-  }, []);
+  }, [casaId, campanhaId, unidadeId]);
 
   useEffect(() => {
     load();
@@ -96,7 +113,7 @@ const KnowledgeLibrary = ({ presetId }: { presetId?: string | null }) => {
         const path = `${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
         const { error: upErr } = await supabase.storage.from("knowledge-docs").upload(path, file);
         if (upErr) throw upErr;
-        const { data: row, error } = await supabase
+        const { data: row, error } = await db
           .from("knowledge_documents")
           .insert({
             title: file.name,
@@ -107,6 +124,9 @@ const KnowledgeLibrary = ({ presetId }: { presetId?: string | null }) => {
             bytes: file.size,
             created_by: user?.id ?? null,
             preset_id: scope === "preset" ? presetId ?? null : null,
+            casa_id: casaId ?? null,
+            campanha_id: campanhaId ?? null,
+            unidade_id: unidadeId ?? null,
           })
           .select()
           .single();
@@ -129,7 +149,7 @@ const KnowledgeLibrary = ({ presetId }: { presetId?: string | null }) => {
     }
     setUploading(true);
     const { data: { user } } = await supabase.auth.getUser();
-    const { data: row, error } = await supabase
+    const { data: row, error } = await db
       .from("knowledge_documents")
       .insert({
         title: pasted.title.trim(),
@@ -139,6 +159,9 @@ const KnowledgeLibrary = ({ presetId }: { presetId?: string | null }) => {
         bytes: pasted.text.length,
         created_by: user?.id ?? null,
         preset_id: scope === "preset" ? presetId ?? null : null,
+        casa_id: casaId ?? null,
+        campanha_id: campanhaId ?? null,
+        unidade_id: unidadeId ?? null,
       })
       .select()
       .single();
