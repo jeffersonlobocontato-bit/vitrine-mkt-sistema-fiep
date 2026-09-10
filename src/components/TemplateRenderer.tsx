@@ -88,15 +88,9 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
           backgroundColor: "#E5E7EB",
         }}
       >
-        {backgroundUrl && (
-          <img
-            src={backgroundUrl}
-            alt=""
-            crossOrigin="anonymous"
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        )}
-
+        {/* 1) Foto primeiro: ela fica ATRÁS da arte de fundo. A arte (moldura com
+            janela transparente) pinta por cima, então a foto "vaza" só pela janela —
+            e a moldura/borda da arte nunca é coberta pela foto. */}
         {imageUrl && slot && (
           <div
             style={{
@@ -110,21 +104,33 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
             }}
           >
             <img src={imageUrl} alt="" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            {/* Moldura por cima da foto: um box-shadow no MESMO elemento da <img> ficaria escondido atrás
-                dela (o filho sempre pinta sobre o background/box-shadow do próprio pai); por isso a borda
-                é um overlay position:absolute separado, que entra depois da foto na ordem de pintura. */}
-            {slot.borderColor && (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  borderRadius: slotBorderRadius,
-                  boxShadow: `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}`,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
           </div>
+        )}
+
+        {/* 2) Arte de fundo fixa (logo, gradiente, moldura) por cima da foto. */}
+        {backgroundUrl && (
+          <img
+            src={backgroundUrl}
+            alt=""
+            crossOrigin="anonymous"
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        )}
+
+        {/* 3) Borda do slot por cima de tudo (foto + arte). */}
+        {imageUrl && slot && slot.borderColor && (
+          <div
+            style={{
+              position: "absolute",
+              left: `${slot.x}%`,
+              top: `${slot.y}%`,
+              width: `${slot.w}%`,
+              height: `${slot.h}%`,
+              borderRadius: slotBorderRadius,
+              boxShadow: `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}`,
+              pointerEvents: "none",
+            }}
+          />
         )}
 
         {spec.fields.map((f) => (
@@ -135,16 +141,19 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
               left: `${f.x}%`,
               top: `${f.y}%`,
               width: `${f.w}%`,
-              height: `${f.h}%`,
+              // sem altura fixa: o clamp abaixo limita o nº de linhas, mas a caixa
+              // cresce até caber o texto — altura fixa + overflow hidden cortava
+              // descendentes/partes das letras (ex.: "Sesi" cortada na headline).
+              minHeight: `${f.h}%`,
               fontFamily: f.font || "inherit",
               fontSize: `${Math.round((f.size ?? 32) * scale)}px`,
               color: f.color || "#111827",
               textAlign: f.align ?? "left",
-              overflow: "hidden",
               display: "-webkit-box",
               WebkitLineClamp: f.maxLines ?? 3,
               WebkitBoxOrient: "vertical",
-              lineHeight: 1.2,
+              overflow: "hidden",
+              lineHeight: 1.1,
               fontWeight: 700,
             }}
           >
