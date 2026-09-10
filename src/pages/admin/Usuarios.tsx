@@ -42,6 +42,14 @@ const AdminUsuarios = () => {
   const [role, setRole] = useState<CasaRole>("social_media");
   const [selectedUnidadeId, setSelectedUnidadeId] = useState("");
 
+  // cadastro de novo usuário
+  const [newUser, setNewUser] = useState({ nome: "", email: "", senha: "" });
+  const [newScope, setNewScope] = useState<"casas" | "unidade">("casas");
+  const [newCasaIds, setNewCasaIds] = useState<string[]>([]);
+  const [newRole, setNewRole] = useState<CasaRole>("social_media");
+  const [newUnidadeId, setNewUnidadeId] = useState("");
+  const [creating, setCreating] = useState(false);
+
   const load = useCallback(async () => {
     const casaIds = manageableCasas.map((c) => c.id);
     if (casaIds.length === 0) return;
@@ -116,6 +124,33 @@ const AdminUsuarios = () => {
     await load();
   };
 
+  const createUser = async () => {
+    if (!newUser.email.trim() || newUser.senha.length < 8) {
+      return toast.error("Informe o e-mail e uma senha com pelo menos 8 caracteres");
+    }
+    if (newScope === "casas" && newCasaIds.length === 0) return toast.error("Selecione ao menos uma Casa");
+    if (newScope === "unidade" && !newUnidadeId) return toast.error("Selecione a unidade");
+    setCreating(true);
+    const { data, error } = await supabase.functions.invoke("admin-create-user", {
+      body: {
+        email: newUser.email.trim(),
+        password: newUser.senha,
+        display_name: newUser.nome.trim() || null,
+        casa_ids: newScope === "casas" ? newCasaIds : [],
+        role: newRole,
+        unidade_id: newScope === "unidade" ? newUnidadeId : null,
+      },
+    });
+    setCreating(false);
+    const errMsg = error?.message ?? (data as { error?: string } | null)?.error;
+    if (errMsg) return toast.error(errMsg);
+    setNewUser({ nome: "", email: "", senha: "" });
+    setNewCasaIds([]);
+    setNewUnidadeId("");
+    toast.success("Usuário cadastrado — ele já pode entrar com esse e-mail e senha");
+    await load();
+  };
+
   const removeMember = async (id: string) => {
     const { error } = await db.from("casa_members").delete().eq("id", id);
     if (error) return toast.error(error.message);
@@ -143,6 +178,103 @@ const AdminUsuarios = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8 max-w-3xl">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Cadastrar usuário</CardTitle>
+            <CardDescription>
+              Crie a conta já com senha definida e o acesso escolhido. A pessoa entra direto com esse e-mail e senha,
+              sem precisar se cadastrar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Nome</Label>
+                <Input value={newUser.nome} onChange={(e) => setNewUser({ ...newUser, nome: e.target.value })} placeholder="Maria Silva" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">E-mail</Label>
+                <Input
+                  type="email"
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  placeholder="pessoa@empresa.com"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Senha (mín. 8)</Label>
+                <Input
+                  type="text"
+                  value={newUser.senha}
+                  onChange={(e) => setNewUser({ ...newUser, senha: e.target.value })}
+                  placeholder="senha inicial"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button size="sm" variant={newScope === "casas" ? "default" : "outline"} onClick={() => setNewScope("casas")}>Casa(s)</Button>
+              <Button size="sm" variant={newScope === "unidade" ? "default" : "outline"} onClick={() => setNewScope("unidade")}>Unidade (vendas)</Button>
+            </div>
+
+            {newScope === "casas" ? (
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <div>
+                  <Label className="text-xs font-medium">Casa(s)</Label>
+                  <div className="flex flex-wrap gap-3 mt-1">
+                    {manageableCasas.map((c) => (
+                      <label key={c.id} className="flex items-center gap-1.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={newCasaIds.includes(c.id)}
+                          onChange={(e) =>
+                            setNewCasaIds((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)))
+                          }
+                        />
+                        {c.nome}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Nível de acesso</Label>
+                  <select
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value as CasaRole)}
+                  >
+                    <option value="designer">Designer (total)</option>
+                    <option value="social_media">Social media (gerar criativos)</option>
+                    <option value="gestor">Gestor</option>
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 rounded-lg border border-border p-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Unidade</Label>
+                  <select
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={newUnidadeId}
+                    onChange={(e) => setNewUnidadeId(e.target.value)}
+                  >
+                    <option value="">Selecione</option>
+                    {unidades.map((u) => {
+                      const casaNome = casas.find((c) => c.id === u.casa_id)?.nome ?? "";
+                      return <option key={u.id} value={u.id}>{casaNome} — {u.nome} ({u.cidade})</option>;
+                    })}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <Button onClick={createUser} disabled={creating}>
+              {creating ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
+              Cadastrar usuário
+            </Button>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Vincular usuário</CardTitle>
