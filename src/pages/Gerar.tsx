@@ -51,6 +51,7 @@ const Gerar = () => {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [maskUrl, setMaskUrl] = useState<string | null>(null);
   const [stickerUrls, setStickerUrls] = useState<Record<string, string>>({});
   const [fontUrl, setFontUrl] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
@@ -204,6 +205,12 @@ const Gerar = () => {
   }, [activeSpec?.imageSlot?.framePath]);
 
   useEffect(() => {
+    const maskPath = activeSpec?.imageSlot?.maskPath;
+    if (!maskPath) return setMaskUrl(null);
+    supabase.storage.from("preset-assets").createSignedUrl(maskPath, 3600).then(({ data }) => setMaskUrl(data?.signedUrl ?? null));
+  }, [activeSpec?.imageSlot?.maskPath]);
+
+  useEffect(() => {
     const stickers = activeSpec?.stickers ?? [];
     if (stickers.length === 0) return setStickerUrls({});
     Promise.all(
@@ -348,6 +355,7 @@ const Gerar = () => {
                       backgroundUrl={backgroundUrl}
                       imageUrl={slide.image_url ? imageUrls[slide.image_url] : undefined}
                       frameUrl={frameUrl}
+                      maskUrl={maskUrl}
                       stickerUrls={stickerUrls}
                       fontUrl={fontUrl}
                       previewWidth={240}
@@ -361,6 +369,7 @@ const Gerar = () => {
                         backgroundUrl={backgroundUrl}
                         imageUrl={slide.image_url ? imageUrls[slide.image_url] : undefined}
                         frameUrl={frameUrl}
+                        maskUrl={maskUrl}
                         stickerUrls={stickerUrls}
                         fontUrl={fontUrl}
                         previewWidth={1080}

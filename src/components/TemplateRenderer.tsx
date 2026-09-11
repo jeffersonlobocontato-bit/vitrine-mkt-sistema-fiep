@@ -35,6 +35,11 @@ export interface ImageSlot {
    * "Contorno_Container_Foto.png") desenhada por cima da foto — quando presente, muda o modo
    * de composição (ver nota de camadas no componente abaixo). */
   framePath?: string;
+  /** caminho no bucket `preset-assets` da máscara real do recorte (PNG preenchido, ex.:
+   * "Container_Foto.png") — quando presente, recorta a foto pixel a pixel pelo alfa dessa
+   * imagem (via CSS mask-image) em vez de aproximar por raio de canto; garante que a foto se
+   * encaixe exatamente na forma desenhada pelo design (inclusive recortes em degrau). */
+  maskPath?: string;
 }
 
 /** Elemento gráfico fixo (logo, selo, ícone, palavra-chave já desenhada) — sempre a mesma
@@ -78,6 +83,8 @@ interface Props {
   imageUrl?: string | null;
   /** URL já resolvida (signed) da moldura — ver spec.imageSlot.framePath */
   frameUrl?: string | null;
+  /** URL já resolvida (signed) da máscara de recorte — ver spec.imageSlot.maskPath */
+  maskUrl?: string | null;
   /** URLs já resolvidas (signed) dos elementos gráficos fixos, chaveadas por sticker.key */
   stickerUrls?: Record<string, string>;
   /** URL já resolvida (signed) do arquivo de fonte — ver spec.fontPath */
@@ -104,7 +111,7 @@ interface Props {
  *   composição — nesse modo não faz sentido desenhar o fundo de novo sobre a foto.
  */
 export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
-  ({ spec, values, backgroundUrl, imageUrl, frameUrl, stickerUrls, fontUrl, previewWidth = 1080 }, ref) => {
+  ({ spec, values, backgroundUrl, imageUrl, frameUrl, maskUrl, stickerUrls, fontUrl, previewWidth = 1080 }, ref) => {
     const scale = previewWidth / spec.width;
     const height = Math.round(spec.height * scale);
     const slot = spec.imageSlot;
@@ -113,6 +120,20 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
     const slotBorderRadius = slot
       ? `${(slot.radiusTopLeft ?? 0) * scale}px ${(slot.radiusTopRight ?? 0) * scale}px ${(slot.radiusBottomRight ?? 0) * scale}px ${(slot.radiusBottomLeft ?? 0) * scale}px`
       : undefined;
+
+    // Máscara real (Container_Foto.png) tem prioridade sobre o raio de canto: recorta a foto
+    // pixel a pixel pelo alfa da imagem, reproduzindo formas em degrau que raio de canto sozinho
+    // não consegue (o design system do Sesi usa um recorte assim no canto superior-esquerdo).
+    const maskStyle = maskUrl
+      ? {
+          WebkitMaskImage: `url(${maskUrl})`,
+          maskImage: `url(${maskUrl})`,
+          WebkitMaskSize: "100% 100%",
+          maskSize: "100% 100%",
+          WebkitMaskRepeat: "no-repeat",
+          maskRepeat: "no-repeat",
+        }
+      : { borderRadius: slotBorderRadius };
 
     const photoNode = imageUrl && slot && (
       <div
@@ -123,7 +144,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
           width: `${slot.w}%`,
           height: `${slot.h}%`,
           overflow: "hidden",
-          borderRadius: slotBorderRadius,
+          ...maskStyle,
         }}
       >
         <img src={imageUrl} alt="" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} />

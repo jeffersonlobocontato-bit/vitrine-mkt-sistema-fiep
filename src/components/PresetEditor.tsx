@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3 } from "lucide-react";
+import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
 
@@ -19,6 +19,10 @@ interface Props {
    * própria fonte (fontFamily/fontPath ficam no spec do formato ativo), então importar o
    * pacote só na aba Story, por exemplo, não aplica a fonte na aba Card automaticamente. */
   onUploadFont?: (file: File) => void;
+  /** Chamado ao subir a máscara real do slot de imagem (silhueta preenchida, ex.:
+   * Container_Foto.png) — recorta a foto pixel a pixel pelo alfa dela em vez de aproximar por
+   * raio de canto. */
+  onUploadMask?: (file: File) => void;
 }
 
 let fieldCounter = 0;
@@ -45,10 +49,11 @@ const GRID_MM = 5;
  * de imagem. Isso vira o template_spec que o TemplateRenderer usa depois — a
  * IA nunca decide layout, só preenche o que já foi desenhado aqui.
  */
-export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, onUploadFont }: Props) => {
+export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, onUploadFont, onUploadMask }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stickerInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
+  const maskInputRef = useRef<HTMLInputElement>(null);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x: number; y: number } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedStickerKey, setSelectedStickerKey] = useState<string | null>(null);
@@ -374,7 +379,22 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                 <Input type="number" value={Math.round(spec.imageSlot.w)} onChange={(e) => updateImageSlot({ w: Number(e.target.value) })} placeholder="largura %" />
                 <Input type="number" value={Math.round(spec.imageSlot.h)} onChange={(e) => updateImageSlot({ h: Number(e.target.value) })} placeholder="altura %" />
               </div>
-              <Label className="text-xs text-muted-foreground pt-1">Máscara (raio de cada canto, px)</Label>
+              <div className="flex items-center justify-between pt-1">
+                <Label className="text-xs text-muted-foreground">Máscara real (recorte pixel a pixel — tem prioridade sobre o raio abaixo)</Label>
+                <Button size="sm" variant="outline" onClick={() => maskInputRef.current?.click()} disabled={!onUploadMask}>
+                  <Upload className="w-3.5 h-3.5 mr-1" /> Enviar
+                </Button>
+              </div>
+              {spec.imageSlot.maskPath ? (
+                <div className="flex items-center justify-between text-xs bg-muted rounded-md px-2 py-1.5">
+                  <span className="truncate">{spec.imageSlot.maskPath.split("/").pop()}</span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => updateImageSlot({ maskPath: undefined })}>
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                  </Button>
+                </div>
+              ) : (
+                <Label className="text-xs text-muted-foreground pt-1">Sem máscara real — usando o raio de canto abaixo como aproximação</Label>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <Input type="number" value={spec.imageSlot.radiusTopLeft ?? 0} onChange={(e) => updateImageSlot({ radiusTopLeft: Number(e.target.value) })} placeholder="sup. esquerdo" />
                 <Input type="number" value={spec.imageSlot.radiusTopRight ?? 0} onChange={(e) => updateImageSlot({ radiusTopRight: Number(e.target.value) })} placeholder="sup. direito" />
@@ -394,6 +414,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                   </Button>
                 </div>
               )}
+              <input
+                ref={maskInputRef}
+                type="file"
+                accept="image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.[0] && onUploadMask) onUploadMask(e.target.files[0]);
+                  e.target.value = "";
+                }}
+              />
             </CardContent>
           </Card>
         )}
