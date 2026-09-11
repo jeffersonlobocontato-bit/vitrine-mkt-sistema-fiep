@@ -164,6 +164,11 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
         {hasOwnFrame ? (
           <>
             {backgroundNode}
+            {photoNode}
+            {/* Stickers por cima da foto (não atrás): elementos como a palavra-chave "NR-01" são
+                desenhados com o miolo vazado de propósito (contorno só), pra foto aparecer através
+                da letra — atrás da foto, ficam simplesmente cobertos e somem (era o bug: "01"
+                sumindo atrás da foto). */}
             {spec.stickers?.map((s) => {
               const url = stickerUrls?.[s.key];
               if (!url) return null;
@@ -177,7 +182,6 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
                 />
               );
             })}
-            {photoNode}
           </>
         ) : (
           <>
