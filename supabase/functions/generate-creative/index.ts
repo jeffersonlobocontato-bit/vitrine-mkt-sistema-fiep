@@ -409,6 +409,9 @@ Deno.serve(async (req) => {
       .limit(8)
     const pool = (bankImages ?? []).map((b) => b.storage_path as string)
 
+    // Avisos que voltam pra tela de geração (ex.: a foto não pôde ser gerada) — antes a falha
+    // era silenciosa e o card saía só com a moldura vazia.
+    const warnings: string[] = []
     const dataBoundFields = spec.fields.filter((f) => f.dataBound)
     let imageBudget = preset.image_budget ?? 6
     const slides = draft.slides.map((values, i) => ({
