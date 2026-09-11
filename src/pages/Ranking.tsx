@@ -149,7 +149,7 @@ const Ranking = () => {
       }),
     );
     setFetching(false);
-  }, [isPlatformAdmin, casas, gestorCasaIds]);
+  }, [casaIdsKey]);
 
   useEffect(() => {
     load();
