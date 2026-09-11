@@ -216,6 +216,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
     const [dragOrigin, setDragOrigin] = useState<{ clientX: number; clientY: number; pos: ImagePosition } | null>(null);
     const posX = imagePosition?.x ?? 50;
     const posY = imagePosition?.y ?? 50;
+    const zoom = Math.max(1, imagePosition?.zoom ?? 1);
 
     useEffect(() => {
       if (!dragOrigin || !onImagePositionChange) return;
@@ -229,6 +230,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
         onImagePositionChange({
           x: Math.max(0, Math.min(100, dragOrigin.pos.x - dxPct)),
           y: Math.max(0, Math.min(100, dragOrigin.pos.y - dyPct)),
+          zoom: dragOrigin.pos.zoom,
         });
       };
       const onUp = () => setDragOrigin(null);
@@ -244,7 +246,16 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
       if (!onImagePositionChange) return;
       e.preventDefault();
       e.stopPropagation();
-      setDragOrigin({ clientX: e.clientX, clientY: e.clientY, pos: { x: posX, y: posY } });
+      setDragOrigin({ clientX: e.clientX, clientY: e.clientY, pos: { x: posX, y: posY, zoom } });
+    };
+
+    /** roda do mouse = zoom da foto dentro do quadro (mín. 1 = cover, máx. 4x) */
+    const onWheelPhoto = (e: React.WheelEvent) => {
+      if (!onImagePositionChange) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const next = Math.max(1, Math.min(4, zoom * (e.deltaY > 0 ? 0.92 : 1.08)));
+      onImagePositionChange({ x: posX, y: posY, zoom: next });
     };
 
     const slotBorderRadius = slot
