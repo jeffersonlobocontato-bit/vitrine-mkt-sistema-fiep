@@ -1,4 +1,13 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
+
+/** Posição do "recorte" da foto dentro do slot — mesmo conceito de object-position do CSS
+ * (0% = mostra a borda esquerda/superior da foto, 100% = mostra a direita/inferior), só que
+ * exposto como um valor controlável de fora pra dar suporte ao arrasto tipo máscara do
+ * Canva/Adobe (o quadro nunca muda de tamanho/posição, só qual pedaço da foto aparece nele). */
+export interface ImagePosition {
+  x: number;
+  y: number;
+}
 
 export interface TemplateField {
   key: string;
@@ -99,6 +108,14 @@ interface Props {
   fontUrl?: string | null;
   /** largura de render em px — 1080 na exportação, menor na prévia */
   previewWidth?: number;
+  /** enquadramento atual da foto dentro do slot (object-position, 0-100% cada eixo) — sem
+   * valor, cai no padrão centralizado (50/50), igual o comportamento de sempre. */
+  imagePosition?: ImagePosition;
+  /** presente = o slot de foto vira arrastável (like Canva/Adobe): o usuário arrasta a foto
+   * por dentro do container fixo (posição/tamanho/máscara do slot nunca mudam) pra escolher
+   * qual parte dela aparece. Ausente = a foto fica estática na posição de `imagePosition`
+   * (usado no nó de exportação em resolução completa, que fica fora da tela). */
+  onImagePositionChange?: (pos: ImagePosition) => void;
 }
 
 /**
@@ -119,11 +136,53 @@ interface Props {
  *   composição — nesse modo não faz sentido desenhar o fundo de novo sobre a foto.
  */
 export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
-  ({ spec, values, backgroundUrl, imageUrl, frameUrl, maskUrl, stickerUrls, fontUrl, previewWidth = 1080 }, ref) => {
+  (
+    { spec, values, backgroundUrl, imageUrl, frameUrl, maskUrl, stickerUrls, fontUrl, previewWidth = 1080, imagePosition, onImagePositionChange },
+    ref,
+  ) => {
     const scale = previewWidth / spec.width;
     const height = Math.round(spec.height * scale);
     const slot = spec.imageSlot;
     const hasOwnFrame = Boolean(frameUrl);
+
+    // Arrasto da foto dentro do slot (máscara/moldura/posição do slot nunca mudam, só o
+    // enquadramento): estado local só durante o gesto, a posição final vive fora (controlada
+    // por imagePosition/onImagePositionChange) pra sobreviver entre a prévia pequena e o nó de
+    // exportação em resolução completa, que compartilham o mesmo valor.
+    const photoBoxRef = useRef<HTMLDivElement>(null);
+    const [dragOrigin, setDragOrigin] = useState<{ clientX: number; clientY: number; pos: ImagePosition } | null>(null);
+    const posX = imagePosition?.x ?? 50;
+    const posY = imagePosition?.y ?? 50;
+
+    useEffect(() => {
+      if (!dragOrigin || !onImagePositionChange) return;
+      const onMove = (e: MouseEvent) => {
+        const rect = photoBoxRef.current?.getBoundingClientRect();
+        if (!rect || !rect.width || !rect.height) return;
+        const dxPct = ((e.clientX - dragOrigin.clientX) / rect.width) * 100;
+        const dyPct = ((e.clientY - dragOrigin.clientY) / rect.height) * 100;
+        // arrastar a foto pra direita/baixo revela mais do lado esquerdo/superior dela —
+        // por isso o sinal invertido (é a foto que se move com o cursor, não a "janela").
+        onImagePositionChange({
+          x: Math.max(0, Math.min(100, dragOrigin.pos.x - dxPct)),
+          y: Math.max(0, Math.min(100, dragOrigin.pos.y - dyPct)),
+        });
+      };
+      const onUp = () => setDragOrigin(null);
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      return () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+    }, [dragOrigin, onImagePositionChange]);
+
+    const startDragPhoto = (e: React.MouseEvent) => {
+      if (!onImagePositionChange) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOrigin({ clientX: e.clientX, clientY: e.clientY, pos: { x: posX, y: posY } });
+    };
 
     const slotBorderRadius = slot
       ? `${(slot.radiusTopLeft ?? 0) * scale}px ${(slot.radiusTopRight ?? 0) * scale}px ${(slot.radiusBottomRight ?? 0) * scale}px ${(slot.radiusBottomLeft ?? 0) * scale}px`
@@ -145,6 +204,8 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
 
     const photoNode = imageUrl && slot && (
       <div
+        ref={photoBoxRef}
+        onMouseDown={startDragPhoto}
         style={{
           position: "absolute",
           left: `${slot.x}%`,
@@ -152,15 +213,25 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
           width: `${slot.w}%`,
           height: `${slot.h}%`,
           overflow: "hidden",
+          cursor: onImagePositionChange ? (dragOrigin ? "grabbing" : "grab") : undefined,
           ...maskStyle,
         }}
       >
-        <img src={imageUrl} alt="" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        {/* O container (posição/tamanho/máscara) nunca se move — só o enquadramento da foto
+            dentro dele, via object-position, exatamente como uma máscara de foto do
+            Canva/Adobe: você arrasta a imagem por dentro de um quadro fixo. */}
+        <img
+          src={imageUrl}
+          alt=""
+          crossOrigin="anonymous"
+          draggable={false}
+          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${posX}% ${posY}%`, pointerEvents: "none" }}
+        />
         {/* Moldura própria por cima da foto: um box-shadow no MESMO elemento da <img> ficaria
             escondido atrás dela (o filho sempre pinta sobre o background/box-shadow do próprio
             pai), por isso é um overlay position:absolute separado, depois da foto na pintura. */}
         {hasOwnFrame && (
-          <img src={frameUrl!} alt="" crossOrigin="anonymous" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill" }} />
+          <img src={frameUrl!} alt="" crossOrigin="anonymous" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", pointerEvents: "none" }} />
         )}
       </div>
     );

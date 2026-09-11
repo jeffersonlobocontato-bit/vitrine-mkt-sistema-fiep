@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, ArrowLeft, Sparkles, Check, Download, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { TemplateRenderer, type FormatTemplateSpec } from "@/components/TemplateRenderer";
+import { TemplateRenderer, type FormatTemplateSpec, type ImagePosition } from "@/components/TemplateRenderer";
 
 // casas/campanhas/campanha_itens/agent_presets(template_spec)/instagram_creatives(campanha_item_id)
 // ainda não estão totalmente no types.ts gerado.
@@ -49,6 +49,9 @@ const Gerar = () => {
   const [runId, setRunId] = useState<string | null>(null);
   const [creative, setCreative] = useState<Creative | null>(null);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  // Enquadramento da foto dentro do slot por slide (índice) — máscara tipo Canva/Adobe: o
+  // usuário arrasta a foto por dentro do container fixo. Sem entrada aqui, cai no centro (50/50).
+  const [imagePositions, setImagePositions] = useState<Record<number, ImagePosition>>({});
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [maskUrl, setMaskUrl] = useState<string | null>(null);
@@ -125,6 +128,7 @@ const Gerar = () => {
     if (!campanhaId || !itemId || !presetId) return toast.error("Selecione campanha, item e preset");
     setGenerating(true);
     setCreative(null);
+    setImagePositions({});
     try {
       const { data, error } = await supabase.functions.invoke("generate-creative", {
         body: { campanha_id: campanhaId, campanha_item_id: itemId, format, preset_id: presetId, contact_keys: contactKeys, brief: brief.trim() || undefined },
@@ -359,8 +363,15 @@ const Gerar = () => {
                       stickerUrls={stickerUrls}
                       fontUrl={fontUrl}
                       previewWidth={240}
+                      imagePosition={imagePositions[i]}
+                      onImagePositionChange={slide.image_url ? (pos) => setImagePositions((prev) => ({ ...prev, [i]: pos })) : undefined}
                     />
-                    {/* nó em resolução completa, fora da tela, usado só pra exportar o PNG final */}
+                    {activeSpec.imageSlot && slide.image_url && (
+                      <p className="text-[10px] text-muted-foreground text-center mt-1">Arraste a foto pra reposicionar</p>
+                    )}
+                    {/* nó em resolução completa, fora da tela, usado só pra exportar o PNG final —
+                        sem onImagePositionChange (não é arrastável), só herda a posição escolhida
+                        na prévia acima (mesmo estado imagePositions[i]). */}
                     <div style={{ position: "fixed", left: -20000, top: 0 }}>
                       <TemplateRenderer
                         ref={(el) => (exportRefs.current[i] = el)}
@@ -373,6 +384,7 @@ const Gerar = () => {
                         stickerUrls={stickerUrls}
                         fontUrl={fontUrl}
                         previewWidth={1080}
+                        imagePosition={imagePositions[i]}
                       />
                     </div>
                   </div>
