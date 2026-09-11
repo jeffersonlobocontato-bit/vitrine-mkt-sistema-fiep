@@ -170,6 +170,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     setDrag({ kind: "sticker", key: sticker.key, mode, startX: p.x, startY: p.y, sticker });
   };
 
+  // Container da foto: mesmo arraste dos demais elementos — antes só dava pra posicionar
+  // digitando números nos campos do painel.
+  const startDragSlot = (e: React.MouseEvent, slot: NonNullable<FormatTemplateSpec["imageSlot"]>, mode: "move" | "resize") => {
+    e.stopPropagation();
+    setSelected(null);
+    setSelectedStickerKey(null);
+    const p = pct(e.clientX, e.clientY);
+    setDrag({ kind: "slot", mode, startX: p.x, startY: p.y, slot });
+  };
+
   const addImageSlot = () => {
     onChange({ ...spec, imageSlot: { x: 10, y: 10, w: 80, h: 40 } });
   };
@@ -351,10 +361,15 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               node: (
                 <div
                   key="__image__"
-                  className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium"
+                  onMouseDown={(e) => startDragSlot(e, spec.imageSlot!, "move")}
+                  className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium cursor-move"
                   style={{ left: `${spec.imageSlot.x}%`, top: `${spec.imageSlot.y}%`, width: `${spec.imageSlot.w}%`, height: `${spec.imageSlot.h}%` }}
                 >
                   <ImageIcon className="w-4 h-4 mr-1" /> Slot de imagem
+                  <div
+                    onMouseDown={(e) => startDragSlot(e, spec.imageSlot!, "resize")}
+                    className="absolute bottom-0 right-0 w-3 h-3 bg-blue-600 cursor-se-resize"
+                  />
                 </div>
               ),
             });
