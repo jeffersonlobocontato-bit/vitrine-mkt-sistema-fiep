@@ -119,6 +119,66 @@ interface Props {
 }
 
 /**
+ * Texto de um campo do preset, sempre DENTRO da caixa que o designer desenhou (mesmo x/y/w/h
+ * do marcador do editor). Se o texto escrito pela IA não couber no tamanho de fonte
+ * configurado, a fonte encolhe até caber (mínimo 45% do tamanho original) em vez de a caixa
+ * crescer pra fora do marcador — era isso que fazia a arte final sair diferente do setup.
+ */
+const FittedText = ({
+  field: f,
+  text,
+  scale,
+  fallbackFamily,
+}: {
+  field: TemplateField;
+  text: string;
+  scale: number;
+  fallbackFamily?: string;
+}) => {
+  const baseSize = Math.round((f.size ?? 32) * scale);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [fontSize, setFontSize] = useState(baseSize);
+
+  useEffect(() => {
+    setFontSize(baseSize);
+  }, [baseSize, text]);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    // encolhe em passos pequenos até o conteúdo caber na caixa (ou até o piso de 45%)
+    if (el.scrollHeight > el.clientHeight + 1 && fontSize > Math.max(8, baseSize * 0.45)) {
+      setFontSize((s) => Math.max(Math.floor(baseSize * 0.45), s - Math.max(1, Math.round(baseSize * 0.04))));
+    }
+  }, [fontSize, baseSize, text]);
+
+  return (
+    <div
+      ref={boxRef}
+      style={{
+        position: "absolute",
+        left: `${f.x}%`,
+        top: `${f.y}%`,
+        width: `${f.w}%`,
+        height: `${f.h}%`,
+        fontFamily: f.font || fallbackFamily || "inherit",
+        fontSize: `${fontSize}px`,
+        color: f.color || "#111827",
+        textAlign: f.align ?? "left",
+        display: "-webkit-box",
+        WebkitLineClamp: f.maxLines ?? 3,
+        WebkitBoxOrient: "vertical",
+        overflow: "hidden",
+        lineHeight: 1.12,
+        fontWeight: 700,
+      }}
+    >
+      {text}
+    </div>
+  );
+};
+
+/**
  * Renderer genérico do motor de preset: não decide layout, só posiciona o que o
  * designer já definiu no editor de preset (template_spec). Substitui o
  * CreativeCanvas.tsx hardcoded — um preset por Casa/campanha, não um só global.
