@@ -16,6 +16,9 @@ export interface TemplateField {
   /** true = preenchido com dado real (ex.: contato da unidade), nunca escrito pela IA —
    * o usuário escolhe quais dados entram aqui na tela de geração. */
   dataBound?: boolean;
+  /** posição de empilhamento (maior = mais na frente) — definida arrastando no painel de
+   * camadas do PresetEditor. Sem valor, cai no comportamento histórico (ver TemplateRenderer). */
+  order?: number;
 }
 
 export interface ImageSlot {
@@ -40,6 +43,9 @@ export interface ImageSlot {
    * imagem (via CSS mask-image) em vez de aproximar por raio de canto; garante que a foto se
    * encaixe exatamente na forma desenhada pelo design (inclusive recortes em degrau). */
   maskPath?: string;
+  /** posição de empilhamento da foto (maior = mais na frente) — mesmo mecanismo de `order`
+   * de TemplateField/StickerAsset, ver painel de camadas do PresetEditor. */
+  order?: number;
 }
 
 /** Elemento gráfico fixo (logo, selo, ícone, palavra-chave já desenhada) — sempre a mesma
@@ -51,6 +57,8 @@ export interface StickerAsset {
   y: number;
   w: number;
   h: number;
+  /** posição de empilhamento (maior = mais na frente) — ver TemplateField.order. */
+  order?: number;
 }
 
 export interface FormatTemplateSpec {
@@ -166,79 +174,37 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
       />
     );
 
-    return (
-      <div
-        ref={ref}
-        style={{
-          width: `${previewWidth}px`,
-          height: `${height}px`,
-          position: "relative",
-          overflow: "hidden",
-          backgroundColor: "#E5E7EB",
-          fontFamily: spec.fontFamily || undefined,
-        }}
-      >
-        {fontUrl && spec.fontFamily && (
-          <style>{`@font-face{font-family:'${spec.fontFamily}';src:url('${fontUrl}');font-display:swap;}`}</style>
-        )}
-
-        {hasOwnFrame ? (
-          <>
-            {backgroundNode}
-            {photoNode}
-            {/* Stickers por cima da foto (não atrás): elementos como a palavra-chave "NR-01" são
-                desenhados com o miolo vazado de propósito (contorno só), pra foto aparecer através
-                da letra — atrás da foto, ficam simplesmente cobertos e somem (era o bug: "01"
-                sumindo atrás da foto). */}
-            {spec.stickers?.map((s) => {
-              const url = stickerUrls?.[s.key];
-              if (!url) return null;
-              return (
-                <img
-                  key={s.key}
-                  src={url}
-                  alt=""
-                  crossOrigin="anonymous"
-                  style={{ position: "absolute", left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%`, objectFit: "contain" }}
-                />
-              );
-            })}
-          </>
-        ) : (
-          <>
-            {photoNode}
-            {backgroundNode}
-            {imageUrl && slot && slot.borderColor && (
-              <div
-                style={{
-                  position: "absolute",
-                  left: `${slot.x}%`,
-                  top: `${slot.y}%`,
-                  width: `${slot.w}%`,
-                  height: `${slot.h}%`,
-                  borderRadius: slotBorderRadius,
-                  boxShadow: `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}`,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
-            {spec.stickers?.map((s) => {
-              const url = stickerUrls?.[s.key];
-              if (!url) return null;
-              return (
-                <img
-                  key={s.key}
-                  src={url}
-                  alt=""
-                  crossOrigin="anonymous"
-                  style={{ position: "absolute", left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%`, objectFit: "contain" }}
-                />
-              );
-            })}
-          </>
-        )}
-
-        {spec.fields.map((f) => (
+    // Empilhamento unificado (foto + elementos gráficos + campos de texto), ordenável pelo
+    // designer no painel de camadas do PresetEditor: maior `order` = mais na frente. Sem
+    // `order` explícito em nada, cai no comportamento histórico — foto atrás, stickers na
+    // ordem em que foram importados, campos de texto sempre por cima de tudo — pra não mudar
+    // a aparência de um preset já pronto assim que o campo passa a existir.
+    interface Layer {
+      order: number;
+      node: JSX.Element;
+    }
+    const stickerCount = spec.stickers?.length ?? 0;
+    const overlayLayers: Layer[] = [];
+    spec.stickers?.forEach((s, i) => {
+      const url = stickerUrls?.[s.key];
+      if (!url) return;
+      overlayLayers.push({
+        order: s.order ?? i + 1,
+        node: (
+          <img
+            key={s.key}
+            src={url}
+            alt=""
+            crossOrigin="anonymous"
+            style={{ position: "absolute", left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%`, objectFit: "contain" }}
+          />
+        ),
+      });
+    });
+    spec.fields.forEach((f, i) => {
+      overlayLayers.push({
+        order: f.order ?? stickerCount + 1 + i,
+        node: (
           <div
             key={f.key}
             style={{
@@ -267,7 +233,67 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
           >
             {values[f.key] ?? ""}
           </div>
-        ))}
+        ),
+      });
+    });
+    overlayLayers.sort((a, b) => a.order - b.order);
+    // No modo com moldura própria, a foto entra no mesmo empilhamento (pode ficar atrás ou na
+    // frente de um sticker, conforme o designer arrastou); no modo legado ela fica de fora
+    // (ver comentário da árvore de composição abaixo) — a foto é renderizada fixa antes do fundo.
+    const allLayers = photoNode
+      ? [...overlayLayers, { order: slot?.order ?? 0, node: <div key="__image__">{photoNode}</div> }].sort((a, b) => a.order - b.order)
+      : overlayLayers;
+
+    return (
+      <div
+        ref={ref}
+        style={{
+          width: `${previewWidth}px`,
+          height: `${height}px`,
+          position: "relative",
+          overflow: "hidden",
+          backgroundColor: "#E5E7EB",
+          fontFamily: spec.fontFamily || undefined,
+        }}
+      >
+        {fontUrl && spec.fontFamily && (
+          <style>{`@font-face{font-family:'${spec.fontFamily}';src:url('${fontUrl}');font-display:swap;}`}</style>
+        )}
+
+        {hasOwnFrame ? (
+          <>
+            {backgroundNode}
+            {/* Foto, stickers e campos de texto entram todos no mesmo empilhamento — a ordem
+                relativa entre eles é o que o designer define no painel de camadas (ex.: a
+                palavra-chave "NR-01" é desenhada com o miolo vazado de propósito, pra foto
+                aparecer através da letra quando o sticker fica na frente; atrás da foto, ela
+                fica simplesmente coberta e some). */}
+            {allLayers.map((l) => l.node)}
+          </>
+        ) : (
+          <>
+            {photoNode}
+            {backgroundNode}
+            {imageUrl && slot && slot.borderColor && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${slot.x}%`,
+                  top: `${slot.y}%`,
+                  width: `${slot.w}%`,
+                  height: `${slot.h}%`,
+                  borderRadius: slotBorderRadius,
+                  boxShadow: `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}`,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
+            {/* Modo legado: a foto fica presa atrás do fundo (ver árvore de composição no
+                comentário do componente) e não entra no empilhamento reordenável — só stickers
+                e campos de texto, entre si, respeitam a ordem do painel de camadas. */}
+            {overlayLayers.map((l) => l.node)}
+          </>
+        )}
       </div>
     );
   },

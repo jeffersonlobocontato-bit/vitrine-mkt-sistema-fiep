@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3 } from "lucide-react";
+import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3, GripVertical, ChevronUp, Type, Layers } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
 
@@ -43,6 +43,15 @@ const QUICK_FIELDS: Record<"headline" | "subtitulo" | "cta", Omit<TemplateField,
 const PX_PER_MM = 96 / 25.4;
 const GRID_MM = 5;
 
+/** Item do painel de camadas — um por foto/sticker/campo de texto, ver `layerItems` abaixo. */
+interface LayerItem {
+  id: string;
+  kind: "image" | "sticker" | "field";
+  label: string;
+  order: number;
+  thumb?: string;
+}
+
 /**
  * Editor visual do preset: o designer desenha retângulos sobre a arte de
  * referência (exportada do Adobe) para definir cada campo de texto e o slot
@@ -66,6 +75,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const [stickerUrls, setStickerUrls] = useState<Record<string, string>>({});
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
+  const [dragLayerId, setDragLayerId] = useState<string | null>(null);
 
   const pct = (clientX: number, clientY: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -213,6 +223,85 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const gridPercentX = ((GRID_MM * PX_PER_MM) / spec.width) * 100;
   const gridPercentY = ((GRID_MM * PX_PER_MM) / spec.height) * 100;
 
+  // Painel de camadas: mesma lógica de "maior order = mais na frente" que o TemplateRenderer usa
+  // pra desenhar (ver TemplateField.order/StickerAsset.order/ImageSlot.order) — aqui só listamos
+  // pra deixar o designer arrastar, igual Adobe (topo da lista = elemento mais na frente).
+  const stickerCountForOrder = spec.stickers?.length ?? 0;
+  const layerItems: LayerItem[] = [
+    ...(spec.imageSlot
+      ? [{ id: "image", kind: "image" as const, label: "Foto", order: spec.imageSlot.order ?? 0 }]
+      : []),
+    ...(spec.stickers ?? []).map((s, i) => ({
+      id: `sticker:${s.key}`,
+      kind: "sticker" as const,
+      label: s.key,
+      order: s.order ?? i + 1,
+      thumb: stickerUrls[s.key],
+    })),
+    ...spec.fields.map((f, i) => ({
+      id: `field:${f.key}`,
+      kind: "field" as const,
+      label: f.label,
+      order: f.order ?? stickerCountForOrder + 1 + i,
+    })),
+  ].sort((a, b) => b.order - a.order);
+
+  // Reescreve o `order` de tudo (foto/stickers/campos) a partir da ordem visual do painel —
+  // topo da lista (índice 0) vira o maior order, base vira 0. Reatribuir sempre em sequência
+  // limpa evita colisão/deriva de valores em vez de só trocar dois números de lugar.
+  const applyLayerOrder = (ordered: LayerItem[]) => {
+    const n = ordered.length;
+    const orderById = new Map(ordered.map((item, idx) => [item.id, n - 1 - idx]));
+    onChange({
+      ...spec,
+      fields: spec.fields.map((f) => ({ ...f, order: orderById.get(`field:${f.key}`) ?? f.order })),
+      stickers: (spec.stickers ?? []).map((s) => ({ ...s, order: orderById.get(`sticker:${s.key}`) ?? s.order })),
+      imageSlot: spec.imageSlot ? { ...spec.imageSlot, order: orderById.get("image") ?? spec.imageSlot.order } : spec.imageSlot,
+    });
+  };
+
+  const moveLayer = (id: string, direction: "up" | "down") => {
+    const idx = layerItems.findIndex((l) => l.id === id);
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= layerItems.length) return;
+    const ordered = [...layerItems];
+    [ordered[idx], ordered[targetIdx]] = [ordered[targetIdx], ordered[idx]];
+    applyLayerOrder(ordered);
+  };
+
+  const selectLayer = (item: LayerItem) => {
+    if (item.kind === "field") {
+      setSelected(item.id.slice("field:".length));
+      setSelectedStickerKey(null);
+    } else if (item.kind === "sticker") {
+      setSelectedStickerKey(item.id.slice("sticker:".length));
+      setSelected(null);
+    } else {
+      setSelected(null);
+      setSelectedStickerKey(null);
+    }
+  };
+
+  const handleLayerDrop = (targetId: string) => {
+    if (!dragLayerId || dragLayerId === targetId) {
+      setDragLayerId(null);
+      return;
+    }
+    const ordered = [...layerItems];
+    const fromIdx = ordered.findIndex((l) => l.id === dragLayerId);
+    const toIdx = ordered.findIndex((l) => l.id === targetId);
+    if (fromIdx !== -1 && toIdx !== -1) {
+      const [moved] = ordered.splice(fromIdx, 1);
+      ordered.splice(toIdx, 0, moved);
+      applyLayerOrder(ordered);
+    }
+    setDragLayerId(null);
+  };
+
+  const isLayerSelected = (item: LayerItem) =>
+    (item.kind === "field" && selected === item.id.slice("field:".length)) ||
+    (item.kind === "sticker" && selectedStickerKey === item.id.slice("sticker:".length));
+
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-4">
       <div className="space-y-2">
@@ -359,6 +448,72 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
             }}
           />
         </div>
+
+        {layerItems.length > 0 && (
+          <Card>
+            <CardContent className="p-3 space-y-2">
+              <Label className="text-xs font-medium flex items-center gap-1">
+                <Layers className="w-3.5 h-3.5" /> Camadas
+              </Label>
+              <p className="text-[10px] text-muted-foreground">
+                Arraste pra mudar a ordem — o de cima fica na frente, igual no Adobe.
+              </p>
+              <div className="space-y-1">
+                {layerItems.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    draggable
+                    onDragStart={() => setDragLayerId(item.id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleLayerDrop(item.id)}
+                    onClick={() => selectLayer(item)}
+                    className={`flex items-center gap-2 rounded px-1.5 py-1 cursor-grab active:cursor-grabbing ${
+                      isLayerSelected(item) ? "bg-amber-100" : "hover:bg-muted"
+                    } ${dragLayerId === item.id ? "opacity-40" : ""}`}
+                  >
+                    <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <div className="w-6 h-6 rounded border border-border bg-background flex items-center justify-center shrink-0 overflow-hidden">
+                      {item.kind === "sticker" && item.thumb ? (
+                        <img src={item.thumb} alt="" className="w-full h-full object-contain" />
+                      ) : item.kind === "image" ? (
+                        <ImageIcon className="w-3.5 h-3.5 text-blue-500" />
+                      ) : (
+                        <Type className="w-3.5 h-3.5 text-emerald-600" />
+                      )}
+                    </div>
+                    <span className="text-xs truncate flex-1">{item.label}</span>
+                    <div className="flex flex-col shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveLayer(item.id, "up");
+                        }}
+                        disabled={idx === 0}
+                        className="disabled:opacity-20 hover:text-primary"
+                        title="Mover pra frente"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveLayer(item.id, "down");
+                        }}
+                        disabled={idx === layerItems.length - 1}
+                        className="disabled:opacity-20 hover:text-primary rotate-180"
+                        title="Mover pra trás"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {!spec.imageSlot ? (
           <Button size="sm" variant="outline" onClick={addImageSlot}>
