@@ -7,6 +7,9 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 export interface ImagePosition {
   x: number;
   y: number;
+  /** zoom da foto dentro do quadro (1 = preenche a moldura, "cover"). Sempre >= 1 pra que a
+   * foto nunca deixe buraco dentro da máscara, igual às molduras do Canva. */
+  zoom?: number;
 }
 
 export interface TemplateField {
