@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Image as ImageIcon, Sparkle } from "lucide-react";
+import { Trash2, Plus, Image as ImageIcon, Sparkle, ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
 
@@ -11,9 +11,22 @@ interface Props {
   referenceUrl: string;
   spec: FormatTemplateSpec;
   onChange: (spec: FormatTemplateSpec) => void;
+  /** Chamado quando o designer usa "Novo elemento" → Marca/Grafismo — o upload em si
+   * (storage + preset_reference_files) é responsabilidade de quem monta a tela de presets. */
+  onUploadSticker?: (file: File) => void;
 }
 
 let fieldCounter = 0;
+
+/** Ponto de partida de cada tipo comum de elemento — evita desenhar do zero e já cria a
+ * caixa no lugar certo pra receber, por exemplo, um card de referência sem CTA: o designer
+ * adiciona o CTA aqui, e quando o usuário final pedir um telefone no chat da geração, já tem
+ * onde entrar (campo dataBound), em vez de não ter posição nenhuma reservada para ele. */
+const QUICK_FIELDS: Record<"headline" | "subtitulo" | "cta", Omit<TemplateField, "key">> = {
+  headline: { label: "Headline", x: 8, y: 10, w: 80, h: 18, size: 64, color: "#111827", align: "left", maxLines: 2 },
+  subtitulo: { label: "Subtítulo", x: 8, y: 30, w: 70, h: 10, size: 36, color: "#111827", align: "left", maxLines: 2 },
+  cta: { label: "Contato (CTA)", x: 8, y: 90, w: 84, h: 7, size: 26, color: "#FFFFFF", align: "left", maxLines: 1, dataBound: true },
+};
 
 /**
  * Editor visual do preset: o designer desenha retângulos sobre a arte de
@@ -21,11 +34,13 @@ let fieldCounter = 0;
  * de imagem. Isso vira o template_spec que o TemplateRenderer usa depois — a
  * IA nunca decide layout, só preenche o que já foi desenhado aqui.
  */
-export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
+export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const stickerInputRef = useRef<HTMLInputElement>(null);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x: number; y: number } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField } | null>(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
 
   const pct = (clientX: number, clientY: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -101,6 +116,19 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
     onChange({ ...spec, imageSlot: { ...spec.imageSlot, ...patch } });
   };
 
+  const addQuickField = (type: keyof typeof QUICK_FIELDS) => {
+    fieldCounter += 1;
+    const field: TemplateField = { ...QUICK_FIELDS[type], key: `${type}_${fieldCounter}` };
+    onChange({ ...spec, fields: [...spec.fields, field] });
+    setSelected(field.key);
+    setShowAddMenu(false);
+  };
+
+  const requestStickerUpload = () => {
+    setShowAddMenu(false);
+    stickerInputRef.current?.click();
+  };
+
   const updateSticker = (key: string, patch: Partial<StickerAsset>) => {
     onChange({ ...spec, stickers: (spec.stickers ?? []).map((s) => (s.key === key ? { ...s, ...patch } : s)) });
   };
@@ -163,9 +191,48 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
 
       <div className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Arraste sobre a arte para criar um campo de texto. Clique e arraste um campo para mover; use o quadradinho
-          no canto para redimensionar.
+          Arraste sobre a arte para criar um campo de texto, ou use "Novo elemento" pra já começar com uma posição
+          típica pronta. Clique e arraste um campo para mover; use o quadradinho no canto para redimensionar.
         </p>
+
+        <div className="relative">
+          <Button size="sm" variant="outline" onClick={() => setShowAddMenu((v) => !v)}>
+            <Plus className="w-4 h-4 mr-1" /> Novo elemento <ChevronDown className="w-3.5 h-3.5 ml-1" />
+          </Button>
+          {showAddMenu && (
+            <div className="absolute z-10 mt-1 w-56 rounded-md border border-border bg-popover shadow-md p-1 space-y-0.5">
+              <button onClick={() => addQuickField("headline")} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted">Headline</button>
+              <button onClick={() => addQuickField("subtitulo")} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted">Subtítulo</button>
+              <button onClick={() => addQuickField("cta")} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted">
+                CTA (contato) — reserva o lugar mesmo sem número ainda
+              </button>
+              <button
+                onClick={requestStickerUpload}
+                disabled={!onUploadSticker}
+                className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Marca (logo) — sobe uma imagem
+              </button>
+              <button
+                onClick={requestStickerUpload}
+                disabled={!onUploadSticker}
+                className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Grafismo — sobe uma imagem
+              </button>
+            </div>
+          )}
+          <input
+            ref={stickerInputRef}
+            type="file"
+            accept="image/png,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0] && onUploadSticker) onUploadSticker(e.target.files[0]);
+              e.target.value = "";
+            }}
+          />
+        </div>
 
         {!spec.imageSlot ? (
           <Button size="sm" variant="outline" onClick={addImageSlot}>

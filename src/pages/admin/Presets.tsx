@@ -414,6 +414,7 @@ const AdminPresets = () => {
                             referenceUrl={refUrl}
                             spec={preset.template_spec[f.id] ?? emptySpec(f.w, f.h)}
                             onChange={(next) => saveSpec(preset, f.id, next)}
+                            onUploadSticker={(file) => addSticker(preset, f.id, file)}
                           />
                         ) : (
                           <p className="text-sm text-muted-foreground">Envie a arte de referência deste formato para começar a mapear os campos.</p>
