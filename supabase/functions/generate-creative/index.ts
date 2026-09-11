@@ -41,6 +41,15 @@ type Ctx = {
   totals: { usd: number; brl: number; tokens: number; images: number }
 }
 
+/** Detecta um telefone/WhatsApp digitado pelo usuário no "foco desta geração" (nunca
+ * inventado pela IA — é texto que a própria pessoa escreveu na tela de geração), pra
+ * poder entrar no campo de contato (dataBound) sem precisar estar pré-cadastrado na
+ * unidade/item. Padrão brasileiro comum: DDD opcional entre parênteses, 8-9 dígitos. */
+function extractPhone(text: string): string | null {
+  const match = text.match(/(?:\+?55\s?)?\(?\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}/)
+  return match ? match[0].trim() : null
+}
+
 function endpoint(preset: Preset, path: string) {
   const useOpenAI = preset.provider === 'openai' && OPENAI_API_KEY
   return useOpenAI ? `https://api.openai.com/v1${path}` : `https://ai.gateway.lovable.dev/v1${path}`
@@ -219,11 +228,17 @@ Deno.serve(async (req) => {
 
     // Contato: nunca escrito/inventado pela IA — vem da unidade (por_unidade) ou do contato
     // geral do item (geral), e só entram os campos que o usuário escolheu na tela de geração.
+    // Social media/vendedor também podem digitar um WhatsApp avulso no "foco desta geração"
+    // (texto deles mesmos, não invenção da IA) — entra somado ao que já estava selecionado.
     const CONTACT_LABELS: Record<string, string> = { telefone: 'Tel', whatsapp: 'WhatsApp', email: 'E-mail', endereco: 'Endereço' }
     const contactSource: Record<string, string> =
       unidade?.contatos ?? (item.dados as { contato_geral?: Record<string, string> })?.contato_geral ?? {}
     const chosenKeys = (contact_keys?.length ? contact_keys : Object.keys(contactSource)).filter((k) => contactSource[k])
-    const contactText = chosenKeys.map((k) => `${CONTACT_LABELS[k] ?? k}: ${contactSource[k]}`).join('  ·  ')
+    const briefPhone = brief ? extractPhone(brief) : null
+    const contactText = [
+      ...chosenKeys.map((k) => `${CONTACT_LABELS[k] ?? k}: ${contactSource[k]}`),
+      ...(briefPhone ? [`WhatsApp: ${briefPhone}`] : []),
+    ].join('  ·  ')
 
     const { data: run, error: runErr } = await admin
       .from('instagram_runs')

@@ -320,7 +320,7 @@ const Gerar = () => {
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-16"
                   value={brief}
                   onChange={(e) => setBrief(e.target.value)}
-                  placeholder='Ex.: "foque no risco psicossocial" ou "mencione que é gratuito pra associados" — direciona só o texto, nunca o layout nem as regras da campanha.'
+                  placeholder='Ex.: "foque no risco psicossocial" ou "fale com o SESI no (45) 99986-4017" — o WhatsApp digitado aqui entra no CTA do rodapé; o resto direciona só o texto, nunca o layout nem as regras da campanha.'
                 />
               </div>
 
