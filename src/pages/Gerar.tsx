@@ -371,7 +371,43 @@ const Gerar = () => {
                       onImagePositionChange={slide.image_url ? (pos) => setImagePositions((prev) => ({ ...prev, [i]: pos })) : undefined}
                     />
                     {activeSpec.imageSlot && slide.image_url && (
-                      <p className="text-[10px] text-muted-foreground text-center mt-1">Arraste a foto pra reposicionar</p>
+                      <div className="mt-1 space-y-1">
+                        <div className="flex items-center justify-center gap-1">
+                          {/* zoom da foto DENTRO da moldura (o quadro nunca muda) — igual Canva */}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2"
+                            onClick={() =>
+                              setImagePositions((prev) => {
+                                const cur = prev[i] ?? { x: 50, y: 50, zoom: 1 };
+                                return { ...prev, [i]: { ...cur, zoom: Math.max(1, (cur.zoom ?? 1) - 0.1) } };
+                              })
+                            }
+                          >
+                            −
+                          </Button>
+                          <span className="text-[10px] text-muted-foreground w-10 text-center">
+                            {Math.round((imagePositions[i]?.zoom ?? 1) * 100)}%
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2"
+                            onClick={() =>
+                              setImagePositions((prev) => {
+                                const cur = prev[i] ?? { x: 50, y: 50, zoom: 1 };
+                                return { ...prev, [i]: { ...cur, zoom: Math.min(4, (cur.zoom ?? 1) + 0.1) } };
+                              })
+                            }
+                          >
+                            +
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground text-center">Arraste a foto e use a roda do mouse pra ajustar dentro da moldura</p>
+                      </div>
                     )}
                     {/* nó em resolução completa, fora da tela, usado só pra exportar o PNG final —
                         sem onImagePositionChange (não é arrastável), só herda a posição escolhida
