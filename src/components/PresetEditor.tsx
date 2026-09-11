@@ -23,6 +23,11 @@ interface Props {
    * Container_Foto.png) — recorta a foto pixel a pixel pelo alfa dela em vez de aproximar por
    * raio de canto. */
   onUploadMask?: (file: File) => void;
+  /** Todo elemento gráfico já importado pro preset (fundo/moldura/máscara/sticker avulso), com
+   * miniatura já resolvida — mostrado como uma coluna de miniaturas arrastáveis (igual Canva):
+   * arrastar uma pra cima do card cria um sticker novo na posição soltada, sem precisar subir
+   * o arquivo de novo nem digitar posição manualmente. */
+  libraryAssets?: { path: string; name: string; url: string }[];
 }
 
 let fieldCounter = 0;
@@ -164,7 +169,7 @@ const CollapsibleCard = ({
  * de imagem. Isso vira o template_spec que o TemplateRenderer usa depois — a
  * IA nunca decide layout, só preenche o que já foi desenhado aqui.
  */
-export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, onUploadFont, onUploadMask }: Props) => {
+export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, onUploadFont, onUploadMask, libraryAssets }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stickerInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -338,6 +343,38 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     onChange({ ...spec, stickers: (spec.stickers ?? []).filter((s) => s.key !== key) });
   };
 
+  /** Solto da biblioteca de miniaturas em cima do card (ver `libraryAssets`): cria um sticker
+   * novo já centralizado no ponto onde foi arrastado, sem precisar subir o arquivo de novo. */
+  const addStickerFromLibrary = (path: string, xPercent: number, yPercent: number) => {
+    const filename = path.split("/").pop() ?? path;
+    const baseKey =
+      filename
+        .replace(/^(?:pack|sticker|mask|font|componente)-[0-9a-fA-F-]{36}-/, "")
+        .replace(/\.[^.]+$/, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_") || "elemento";
+    const existing = new Set((spec.stickers ?? []).map((s) => s.key));
+    let key = baseKey;
+    let n = 1;
+    while (existing.has(key)) {
+      n += 1;
+      key = `${baseKey}_${n}`;
+    }
+    const w = 20;
+    const h = 20;
+    const sticker: StickerAsset = {
+      key,
+      path,
+      x: Math.max(0, Math.min(100 - w, xPercent - w / 2)),
+      y: Math.max(0, Math.min(100 - h, yPercent - h / 2)),
+      w,
+      h,
+    };
+    onChange({ ...spec, stickers: [...(spec.stickers ?? []), sticker] });
+    setSelected(null);
+    setSelectedStickerKey(key);
+  };
+
   // Resolve signed URLs dos stickers pra mostrar a imagem real no grid.
   useEffect(() => {
     const stickers = spec.stickers ?? [];
@@ -443,8 +480,37 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     (item.kind === "field" && selected === item.id.slice("field:".length)) ||
     (item.kind === "sticker" && selectedStickerKey === item.id.slice("sticker:".length));
 
+  const hasLibrary = (libraryAssets?.length ?? 0) > 0;
+
   return (
-    <div className="grid lg:grid-cols-[1fr_320px] gap-4">
+    <div className={`grid gap-4 ${hasLibrary ? "lg:grid-cols-[132px_1fr_320px]" : "lg:grid-cols-[1fr_320px]"}`}>
+      {hasLibrary && (
+        <div className="space-y-2 lg:max-h-[70vh] lg:overflow-y-auto">
+          <Label className="text-xs font-medium">Biblioteca</Label>
+          <p className="text-[10px] text-muted-foreground">Arraste um elemento pra cima do card.</p>
+          <div className="space-y-2">
+            {libraryAssets!.map((asset) => (
+              <div
+                key={asset.path}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", asset.path);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                title="Arraste pra cima do card"
+                className="border border-border rounded-md p-1.5 space-y-1 bg-background hover:border-primary/50 cursor-grab active:cursor-grabbing"
+              >
+                <div className="aspect-square rounded bg-muted/40 flex items-center justify-center overflow-hidden">
+                  <img src={asset.url} alt="" className="max-w-full max-h-full object-contain pointer-events-none" draggable={false} />
+                </div>
+                <p className="text-[10px] text-center leading-tight truncate" title={asset.name}>
+                  {asset.name}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant={showGrid ? "default" : "outline"} onClick={() => setShowGrid((v) => !v)}>
@@ -466,6 +532,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
           onMouseMove={onCanvasMouseMove}
           onMouseUp={onCanvasMouseUp}
           onMouseLeave={onCanvasMouseUp}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("text/plain")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            const path = e.dataTransfer.getData("text/plain");
+            if (!path) return;
+            e.preventDefault();
+            const p = pct(e.clientX, e.clientY);
+            addStickerFromLibrary(path, p.x, p.y);
+          }}
           className="relative border border-border rounded-lg overflow-hidden select-none cursor-crosshair"
           style={{ aspectRatio: `${spec.width} / ${spec.height}`, maxHeight: "70vh" }}
         >
