@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,7 +46,14 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   const stickerInputRef = useRef<HTMLInputElement>(null);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x: number; y: number } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [drag, setDrag] = useState<{ key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField } | null>(null);
+  const [selectedStickerKey, setSelectedStickerKey] = useState<string | null>(null);
+  const [drag, setDrag] = useState<
+    | { kind: "field"; key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField }
+    | { kind: "sticker"; key: string; mode: "move" | "resize"; startX: number; startY: number; sticker: StickerAsset }
+    | null
+  >(null);
+  // Signed URLs das imagens de sticker pra exibir o elemento direto no grid (o bucket é privado).
+  const [stickerUrls, setStickerUrls] = useState<Record<string, string>>({});
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
 
