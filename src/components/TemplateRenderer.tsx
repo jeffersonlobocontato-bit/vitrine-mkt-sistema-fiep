@@ -7,6 +7,9 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 export interface ImagePosition {
   x: number;
   y: number;
+  /** zoom da foto dentro do quadro (1 = preenche a moldura, "cover"). Sempre >= 1 pra que a
+   * foto nunca deixe buraco dentro da máscara, igual às molduras do Canva. */
+  zoom?: number;
 }
 
 export interface TemplateField {
@@ -213,6 +216,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
     const [dragOrigin, setDragOrigin] = useState<{ clientX: number; clientY: number; pos: ImagePosition } | null>(null);
     const posX = imagePosition?.x ?? 50;
     const posY = imagePosition?.y ?? 50;
+    const zoom = Math.max(1, imagePosition?.zoom ?? 1);
 
     useEffect(() => {
       if (!dragOrigin || !onImagePositionChange) return;
@@ -226,6 +230,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
         onImagePositionChange({
           x: Math.max(0, Math.min(100, dragOrigin.pos.x - dxPct)),
           y: Math.max(0, Math.min(100, dragOrigin.pos.y - dyPct)),
+          zoom: dragOrigin.pos.zoom,
         });
       };
       const onUp = () => setDragOrigin(null);
@@ -241,7 +246,16 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
       if (!onImagePositionChange) return;
       e.preventDefault();
       e.stopPropagation();
-      setDragOrigin({ clientX: e.clientX, clientY: e.clientY, pos: { x: posX, y: posY } });
+      setDragOrigin({ clientX: e.clientX, clientY: e.clientY, pos: { x: posX, y: posY, zoom } });
+    };
+
+    /** roda do mouse = zoom da foto dentro do quadro (mín. 1 = cover, máx. 4x) */
+    const onWheelPhoto = (e: React.WheelEvent) => {
+      if (!onImagePositionChange) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const next = Math.max(1, Math.min(4, zoom * (e.deltaY > 0 ? 0.92 : 1.08)));
+      onImagePositionChange({ x: posX, y: posY, zoom: next });
     };
 
     const slotBorderRadius = slot
@@ -266,6 +280,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
       <div
         ref={photoBoxRef}
         onMouseDown={startDragPhoto}
+        onWheel={onWheelPhoto}
         style={{
           position: "absolute",
           left: `${slot.x}%`,
@@ -278,15 +293,25 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
         }}
       >
         {/* O container (posição/tamanho/máscara) nunca se move — só o enquadramento da foto
-            dentro dele, via object-position, exatamente como uma máscara de foto do
-            Canva/Adobe: você arrasta a imagem por dentro de um quadro fixo. */}
+            dentro dele, via object-position + zoom, exatamente como uma máscara de foto do
+            Canva/Adobe: você arrasta e amplia a imagem por dentro de um quadro fixo, e ela
+            sempre cobre 100% da janela (objectFit cover + zoom >= 1). */}
         <img
           src={imageUrl}
           alt=""
           crossOrigin="anonymous"
           draggable={false}
-          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${posX}% ${posY}%`, pointerEvents: "none" }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: `${posX}% ${posY}%`,
+            transform: zoom !== 1 ? `scale(${zoom})` : undefined,
+            transformOrigin: `${posX}% ${posY}%`,
+            pointerEvents: "none",
+          }}
         />
+
         {/* Moldura própria por cima da foto: um box-shadow no MESMO elemento da <img> ficaria
             escondido atrás dela (o filho sempre pinta sobre o background/box-shadow do próprio
             pai), por isso é um overlay position:absolute separado, depois da foto na pintura. */}
