@@ -15,6 +15,10 @@ interface Props {
   /** Chamado quando o designer usa "Novo elemento" → Marca/Grafismo — o upload em si
    * (storage + preset_reference_files) é responsabilidade de quem monta a tela de presets. */
   onUploadSticker?: (file: File) => void;
+  /** Chamado quando o designer usa "Novo elemento" → Fonte de marca — cada formato tem sua
+   * própria fonte (fontFamily/fontPath ficam no spec do formato ativo), então importar o
+   * pacote só na aba Story, por exemplo, não aplica a fonte na aba Card automaticamente. */
+  onUploadFont?: (file: File) => void;
 }
 
 let fieldCounter = 0;
@@ -41,9 +45,10 @@ const GRID_MM = 5;
  * de imagem. Isso vira o template_spec que o TemplateRenderer usa depois — a
  * IA nunca decide layout, só preenche o que já foi desenhado aqui.
  */
-export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: Props) => {
+export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, onUploadFont }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stickerInputRef = useRef<HTMLInputElement>(null);
+  const fontInputRef = useRef<HTMLInputElement>(null);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x: number; y: number } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedStickerKey, setSelectedStickerKey] = useState<string | null>(null);
@@ -162,6 +167,11 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   const requestStickerUpload = () => {
     setShowAddMenu(false);
     stickerInputRef.current?.click();
+  };
+
+  const requestFontUpload = () => {
+    setShowAddMenu(false);
+    fontInputRef.current?.click();
   };
 
   const updateSticker = (key: string, patch: Partial<StickerAsset>) => {
@@ -314,6 +324,13 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
               >
                 Grafismo — sobe uma imagem
               </button>
+              <button
+                onClick={requestFontUpload}
+                disabled={!onUploadFont}
+                className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Fonte de marca (.ttf/.otf) — só pra este formato
+              </button>
             </div>
           )}
           <input
@@ -323,6 +340,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.[0] && onUploadSticker) onUploadSticker(e.target.files[0]);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={fontInputRef}
+            type="file"
+            accept=".ttf,.otf"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0] && onUploadFont) onUploadFont(e.target.files[0]);
               e.target.value = "";
             }}
           />

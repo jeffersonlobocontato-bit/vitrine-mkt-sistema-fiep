@@ -19,8 +19,8 @@ import type { FormatTemplateSpec, StickerAsset, TemplateSpec } from "@/component
 const db = supabase as any;
 
 const FORMATS: { id: "card" | "carousel" | "story"; label: string; w: number; h: number }[] = [
-  { id: "card", label: "Card", w: 1080, h: 1350 },
-  { id: "carousel", label: "Carrossel", w: 1080, h: 1350 },
+  { id: "card", label: "Card", w: 1080, h: 1440 },
+  { id: "carousel", label: "Carrossel", w: 1080, h: 1440 },
   { id: "story", label: "Story", w: 1080, h: 1920 },
 ];
 
@@ -137,8 +137,8 @@ const AdminPresets = () => {
       template_locked: true,
       created_by: user?.id ?? null,
       template_spec: {
-        card: emptySpec(1080, 1350),
-        carousel: emptySpec(1080, 1350),
+        card: emptySpec(1080, 1440),
+        carousel: emptySpec(1080, 1440),
         story: emptySpec(1080, 1920),
       },
     });
@@ -157,7 +157,7 @@ const AdminPresets = () => {
     // A arte de referência não é só um guia pro editor — vira o fundo de verdade usado
     // na geração (logo, gradiente, textura de marca), por isso grava no template_spec.
     if (kind === "arte_pronta" && format) {
-      const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1350);
+      const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1440);
       await saveSpec(preset, format, { ...current, backgroundPath: path });
     }
     toast.success("Arquivo enviado");
@@ -175,7 +175,7 @@ const AdminPresets = () => {
     setImporting(true);
     try {
       const zip = await JSZip.loadAsync(file);
-      const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1350);
+      const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1440);
       const backgroundPaths = [...(current.backgroundPaths ?? [])];
       const stickers: StickerAsset[] = [...(current.stickers ?? [])];
       let framePath = current.imageSlot?.framePath;
@@ -265,12 +265,31 @@ const AdminPresets = () => {
     if (upErr) return toast.error(upErr.message);
     await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
 
-    const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1350);
+    const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1440);
     const key = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
     const stickers = [...(current.stickers ?? [])];
     if (!stickers.some((s) => s.key === key)) stickers.push({ key, path, x: 10, y: 4, w: 30, h: 8 });
     await saveSpec(preset, format, { ...current, stickers });
     toast.success("Elemento gráfico adicionado — ajuste a posição no editor abaixo");
+    await loadFiles(preset.id);
+  };
+
+  /**
+   * Sobe a fonte de marca só pra este formato — cada formato guarda sua própria
+   * fontFamily/fontPath, então importar o pacote inteiro na aba Story, por exemplo, não
+   * aplica a fonte na aba Card sozinho; isso resolve sem precisar reimportar o zip todo
+   * (que traria de novo os fundos do outro formato, com proporção errada).
+   */
+  const addFont = async (preset: Preset, format: "card" | "carousel" | "story", file: File) => {
+    const path = `${preset.id}/font-${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
+    const { error: upErr } = await supabase.storage.from("preset-assets").upload(path, file);
+    if (upErr) return toast.error(upErr.message);
+    await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
+
+    const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1440);
+    const fontFamily = file.name.replace(/\.(otf|ttf)$/i, "").replace(/[_-]/g, " ").trim() || "Marca";
+    await saveSpec(preset, format, { ...current, fontFamily, fontPath: path });
+    toast.success(`Fonte "${fontFamily}" aplicada a este formato`);
     await loadFiles(preset.id);
   };
 
@@ -302,7 +321,7 @@ const AdminPresets = () => {
         </p>
 
         {presets.map((preset) => {
-          const spec = preset.template_spec[activeFormat] ?? emptySpec(1080, 1350);
+          const spec = preset.template_spec[activeFormat] ?? emptySpec(1080, 1440);
           // A arte de referência do formato ativo é a que está gravada em spec.backgroundPath
           // (setada no upload — ver uploadReference), não precisa mais adivinhar por nome de arquivo.
           const refUrl = spec.backgroundPath ? refUrls[spec.backgroundPath] : undefined;
@@ -417,6 +436,7 @@ const AdminPresets = () => {
                             spec={preset.template_spec[f.id] ?? emptySpec(f.w, f.h)}
                             onChange={(next) => saveSpec(preset, f.id, next)}
                             onUploadSticker={(file) => addSticker(preset, f.id, file)}
+                            onUploadFont={(file) => addFont(preset, f.id, file)}
                           />
                         ) : (
                           <p className="text-sm text-muted-foreground">Envie a arte de referência deste formato para começar a mapear os campos.</p>
