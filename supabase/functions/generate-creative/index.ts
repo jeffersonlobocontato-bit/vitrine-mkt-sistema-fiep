@@ -294,6 +294,7 @@ Deno.serve(async (req) => {
     // a IA só escreve o texto que cabe em cada caixa já desenhada pelo designer.
     // Campos "dataBound" (ex.: contato) ficam de fora — são preenchidos com dado real, não pela IA.
     const aiFields = spec.fields.filter((f) => !f.dataBound)
+    const dataBoundFieldLabels = spec.fields.filter((f) => f.dataBound).map((f) => f.label)
     const fieldProps = Object.fromEntries(
       aiFields.map((f) => [f.key, { type: 'string', description: `${f.label}${f.maxLines ? ` — no máx. ${f.maxLines} linha(s), seja bem conciso` : ''}` }]),
     )
@@ -313,7 +314,10 @@ Deno.serve(async (req) => {
           role: 'system',
           content:
             (preset.instructions?.trim() || `Você escreve criativos de Instagram para a campanha "${campanha.nome}".`) +
-            ` Preencha APENAS os campos de texto pedidos, nunca invente dados fora do material fornecido, respeite rigorosamente o limite de linhas de cada campo (frases curtas, direto ao ponto).` +
+            ` Preencha APENAS os campos de texto pedidos, nunca invente dados fora do material fornecido, respeite rigorosamente o limite de linhas de cada campo (frases curtas, direto ao ponto — cada campo precisa caber fisicamente na caixa desenhada pelo designer, então prefira errar por curto do que por longo).` +
+            (dataBoundFieldLabels.length
+              ? ` Telefone/WhatsApp/e-mail e qualquer outro dado de contato NUNCA entram em nenhum campo de texto — eles já aparecem sozinhos no card através de: ${dataBoundFieldLabels.join(', ')}. Não repita esse dado em nenhum outro campo.`
+              : '') +
             knowledgeContext,
         },
         {
