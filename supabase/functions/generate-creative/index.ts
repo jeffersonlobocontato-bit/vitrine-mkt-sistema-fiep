@@ -420,26 +420,49 @@ Deno.serve(async (req) => {
     if (spec.imageSlot) {
       const { orientation, ratioLabel, openaiSize } = imageOrientation(spec)
       const framingInstruction =
-        orientation === 'square'
-          ? 'Square framing, main subject centered.'
-          : `${orientation === 'portrait' ? 'Vertical portrait' : 'Horizontal landscape'} orientation, aspect ratio close to ${ratioLabel}. Keep the main subject centered with generous margin on all sides — this image will be cropped to exactly fill a ${orientation} frame, so avoid putting anything important near the edges.`
+        `${orientation === 'portrait' ? 'Vertical portrait' : orientation === 'landscape' ? 'Horizontal landscape' : 'Square'} orientation, aspect ratio close to ${ratioLabel}. ` +
+        `The photo must fill the entire frame edge to edge (full-bleed), with the main subject centered and generous margin around it — it will be cropped to fit a ${orientation} window in the layout, so nothing important near the edges.`
+      // A foto entra DENTRO de uma janela recortada da arte (moldura já desenhada pelo
+      // design). Então a imagem gerada tem de ser só a fotografia crua: qualquer moldura,
+      // borda, canto arredondado, fundo colorido ou mockup vindo da IA aparece como "a
+      // moldura virou a imagem" no card final.
+      const photoOnlyRules =
+        'Output a single realistic photograph only. Absolutely no text, letters, numbers, logos or watermarks. ' +
+        'No frame, no border, no rounded corners, no outline, no colored background panel, no gradient overlay, ' +
+        'no collage, no mockup, no device screen, no graphic design elements, no empty placeholder shapes. ' +
+        'The photograph itself covers 100% of the canvas.'
       for (let i = 0; i < slides.length; i++) {
         if (pool.length > 0) {
           ;(slides[i] as { image_url?: string }).image_url = pool[i % pool.length]
           continue
         }
-        if (imageBudget <= 0) continue
-        imageBudget--
-        try {
-          const imagePrompt = `Background image for a "${campanha.nome}" social media creative. Context: ${itemContext}. Editorial, professional, no text, no letters, no watermark, matches an institutional brand. ${framingInstruction}`
-          const b64 = await generateImage(ctx, imagePrompt, openaiSize)
-          if (b64) {
-            ;(slides[i] as { image_url?: string }).image_url = await uploadImage(b64, `${runId}/${format}-${i + 1}-${crypto.randomUUID()}.png`)
-          }
-        } catch (e) {
-          const status = (e as { status?: number }).status
-          if (status === 402 || status === 403) throw e
+        if (imageBudget <= 0) {
+          warnings.push(`Slide ${i + 1}: orçamento de imagens do preset esgotado — a janela da foto ficou vazia.`)
+          continue
         }
+        imageBudget--
+        const imagePrompt =
+          `Photograph for a "${campanha.nome}" institutional social media creative. Context: ${itemContext}. ` +
+          `Editorial, professional, real people/environment, natural light. ${photoOnlyRules} ${framingInstruction}`
+        let lastError = ''
+        // Duas tentativas: falha de rede/conteúdo numa única chamada deixava o card sair só
+        // com a moldura e sem nenhum aviso pro usuário.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const b64 = await generateImage(ctx, imagePrompt, openaiSize)
+            if (b64) {
+              ;(slides[i] as { image_url?: string }).image_url = await uploadImage(b64, `${runId}/${format}-${i + 1}-${crypto.randomUUID()}.png`)
+              lastError = ''
+              break
+            }
+            lastError = 'a IA não devolveu imagem'
+          } catch (e) {
+            const status = (e as { status?: number }).status
+            if (status === 402 || status === 403) throw e
+            lastError = (e as Error).message
+          }
+        }
+        if (lastError) warnings.push(`Slide ${i + 1}: não consegui gerar a foto (${lastError.slice(0, 160)}).`)
       }
     }
 
