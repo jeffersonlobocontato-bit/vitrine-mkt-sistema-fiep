@@ -71,6 +71,8 @@ const Ranking = () => {
 
   const gestorCasaIds = casaMemberships.filter((m) => m.role === "gestor").map((m) => m.casa_id);
   const canView = isPlatformAdmin || gestorCasaIds.length > 0;
+  // chaves estáveis para não recriar o load em cada render
+  const casaIdsKey = (isPlatformAdmin ? casas.map((c) => c.id) : gestorCasaIds).sort().join(",");
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth", { replace: true });
