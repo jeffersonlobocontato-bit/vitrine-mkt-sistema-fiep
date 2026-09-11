@@ -206,7 +206,9 @@ const AdminPresets = () => {
 
         if (!["png", "jpg", "jpeg", "webp", "svg"].includes(ext)) continue;
         const blob = await entry.async("blob");
-        const { error } = await supabase.storage.from("preset-assets").upload(path, blob);
+        // .svg vindo do zip chega sem content-type; sem isso a imagem não renderiza depois.
+        const contentType = ext === "svg" ? "image/svg+xml" : undefined;
+        const { error } = await supabase.storage.from("preset-assets").upload(path, blob, contentType ? { contentType } : undefined);
         if (error) continue;
         await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
         imported++;
