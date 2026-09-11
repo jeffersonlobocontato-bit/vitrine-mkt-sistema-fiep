@@ -492,7 +492,7 @@ Deno.serve(async (req) => {
       .eq('id', runId)
 
     return new Response(
-      JSON.stringify({ run_id: runId, format, cost_usd: Number(ctx.totals.usd.toFixed(6)), cost_brl: Number(ctx.totals.brl.toFixed(4)) }),
+      JSON.stringify({ run_id: runId, format, warnings, cost_usd: Number(ctx.totals.usd.toFixed(6)), cost_brl: Number(ctx.totals.brl.toFixed(4)) }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (e) {
