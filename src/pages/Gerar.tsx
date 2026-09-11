@@ -144,8 +144,9 @@ const Gerar = () => {
         }
         throw new Error(detail);
       }
-      const result = data as { run_id: string };
+      const result = data as { run_id: string; warnings?: string[] };
       setRunId(result.run_id);
+      (result.warnings ?? []).forEach((w) => toast.warning(w));
       const { data: rows } = await db.from("instagram_creatives").select("*").eq("run_id", result.run_id).limit(1);
       const c = (rows ?? [])[0] as Creative | undefined;
       if (c) {
