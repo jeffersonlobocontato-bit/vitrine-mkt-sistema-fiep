@@ -280,6 +280,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
       <div
         ref={photoBoxRef}
         onMouseDown={startDragPhoto}
+        onWheel={onWheelPhoto}
         style={{
           position: "absolute",
           left: `${slot.x}%`,
@@ -292,15 +293,25 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
         }}
       >
         {/* O container (posição/tamanho/máscara) nunca se move — só o enquadramento da foto
-            dentro dele, via object-position, exatamente como uma máscara de foto do
-            Canva/Adobe: você arrasta a imagem por dentro de um quadro fixo. */}
+            dentro dele, via object-position + zoom, exatamente como uma máscara de foto do
+            Canva/Adobe: você arrasta e amplia a imagem por dentro de um quadro fixo, e ela
+            sempre cobre 100% da janela (objectFit cover + zoom >= 1). */}
         <img
           src={imageUrl}
           alt=""
           crossOrigin="anonymous"
           draggable={false}
-          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: `${posX}% ${posY}%`, pointerEvents: "none" }}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: `${posX}% ${posY}%`,
+            transform: zoom !== 1 ? `scale(${zoom})` : undefined,
+            transformOrigin: `${posX}% ${posY}%`,
+            pointerEvents: "none",
+          }}
         />
+
         {/* Moldura própria por cima da foto: um box-shadow no MESMO elemento da <img> ficaria
             escondido atrás dela (o filho sempre pinta sobre o background/box-shadow do próprio
             pai), por isso é um overlay position:absolute separado, depois da foto na pintura. */}
