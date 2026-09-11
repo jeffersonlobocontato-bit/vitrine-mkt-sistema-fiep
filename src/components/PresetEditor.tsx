@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Image as ImageIcon, Sparkle, ChevronDown } from "lucide-react";
+import { Trash2, Plus, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
 
@@ -28,6 +28,12 @@ const QUICK_FIELDS: Record<"headline" | "subtitulo" | "cta", Omit<TemplateField,
   cta: { label: "Contato (CTA)", x: 8, y: 90, w: 84, h: 7, size: 26, color: "#FFFFFF", align: "left", maxLines: 1, dataBound: true },
 };
 
+// CSS px de referência = 1/96". Sem um DPI declarado no preset, é a conversão mm->px mais
+// padrão pra uma arte pensada pra tela (não impressão) — ajustar aqui se o pacote de design
+// for pensado em outra resolução de exportação.
+const PX_PER_MM = 96 / 25.4;
+const GRID_MM = 5;
+
 /**
  * Editor visual do preset: o designer desenha retângulos sobre a arte de
  * referência (exportada do Adobe) para definir cada campo de texto e o slot
@@ -41,6 +47,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   const [selected, setSelected] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField } | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
 
   const pct = (clientX: number, clientY: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -138,19 +145,36 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   };
 
   const selectedField = spec.fields.find((f) => f.key === selected);
+  const gridPercentX = ((GRID_MM * PX_PER_MM) / spec.width) * 100;
+  const gridPercentY = ((GRID_MM * PX_PER_MM) / spec.height) * 100;
 
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-      <div
-        ref={containerRef}
-        onMouseDown={onCanvasMouseDown}
-        onMouseMove={onCanvasMouseMove}
-        onMouseUp={onCanvasMouseUp}
-        onMouseLeave={onCanvasMouseUp}
-        className="relative border border-border rounded-lg overflow-hidden select-none cursor-crosshair"
-        style={{ aspectRatio: `${spec.width} / ${spec.height}`, maxHeight: "70vh" }}
-      >
-        <img data-canvas-bg src={referenceUrl} alt="Referência" className="absolute inset-0 w-full h-full object-cover pointer-events-none" draggable={false} />
+      <div className="space-y-2">
+        <Button size="sm" variant={showGrid ? "default" : "outline"} onClick={() => setShowGrid((v) => !v)}>
+          <Grid3x3 className="w-4 h-4 mr-1" /> Grade (5mm)
+        </Button>
+        <div
+          ref={containerRef}
+          onMouseDown={onCanvasMouseDown}
+          onMouseMove={onCanvasMouseMove}
+          onMouseUp={onCanvasMouseUp}
+          onMouseLeave={onCanvasMouseUp}
+          className="relative border border-border rounded-lg overflow-hidden select-none cursor-crosshair"
+          style={{ aspectRatio: `${spec.width} / ${spec.height}`, maxHeight: "70vh" }}
+        >
+          <img data-canvas-bg src={referenceUrl} alt="Referência" className="absolute inset-0 w-full h-full object-cover pointer-events-none" draggable={false} />
+
+          {showGrid && (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage:
+                  "linear-gradient(to right, rgba(255,60,60,0.4) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,60,60,0.4) 1px, transparent 1px)",
+                backgroundSize: `${gridPercentX}% ${gridPercentY}%`,
+              }}
+            />
+          )}
 
         {spec.imageSlot && (
           <div
@@ -187,6 +211,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
             }}
           />
         )}
+        </div>
       </div>
 
       <div className="space-y-3">
