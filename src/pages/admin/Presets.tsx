@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, ArrowLeft, Plus, Upload, PackageOpen, Sparkle } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Upload, PackageOpen, Sparkle, ChevronDown, ChevronRight, Library } from "lucide-react";
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { PresetEditor } from "@/components/PresetEditor";
@@ -25,6 +25,47 @@ const FORMATS: { id: "card" | "carousel" | "story"; label: string; w: number; h:
 ];
 
 const emptySpec = (w: number, h: number): FormatTemplateSpec => ({ width: w, height: h, fields: [] });
+
+const KIND_LABEL: Record<RefFile["kind"], string> = {
+  arte_pronta: "Arte de referência",
+  componente: "Componente",
+  regra_texto: "Regras da arte (texto)",
+};
+
+/** Cruza o arquivo salvo em preset_reference_files com o template_spec de cada formato pra
+ * explicar, em linguagem simples, onde exatamente ele é usado (ou se ainda não é usado). */
+const describeFile = (preset: Preset, file: RefFile): { role: string; formats: string[] } => {
+  const roles = new Set<string>();
+  const formats = new Set<string>();
+  (["card", "carousel", "story"] as const).forEach((fmt) => {
+    const spec = preset.template_spec[fmt];
+    if (!spec) return;
+    if (spec.backgroundPath === file.storage_path) {
+      roles.add("Fundo fixo do card");
+      formats.add(fmt);
+    }
+    if (spec.backgroundPaths?.includes(file.storage_path)) {
+      roles.add("Variação de fundo (sorteada a cada geração)");
+      formats.add(fmt);
+    }
+    if (spec.imageSlot?.framePath === file.storage_path) {
+      roles.add("Moldura desenhada por cima da foto");
+      formats.add(fmt);
+    }
+    if (spec.fontPath === file.storage_path) {
+      roles.add(`Fonte de marca${spec.fontFamily ? ` ("${spec.fontFamily}")` : ""}, usada no texto dos campos`);
+      formats.add(fmt);
+    }
+    const sticker = spec.stickers?.find((s) => s.path === file.storage_path);
+    if (sticker) {
+      roles.add(`Elemento gráfico fixo ("${sticker.key}") — sempre a mesma imagem, a IA nunca escreve nele`);
+      formats.add(fmt);
+    }
+  });
+  if (roles.size > 0) return { role: [...roles].join(" · "), formats: [...formats] };
+  if (file.kind === "regra_texto") return { role: "Texto de apoio pro designer — não entra na arte gerada", formats: [] };
+  return { role: "Enviado, mas ainda não posicionado em nenhum campo do preset", formats: [] };
+};
 
 interface Preset {
   id: string;
@@ -54,6 +95,7 @@ const AdminPresets = () => {
   const [activeFormat, setActiveFormat] = useState<"card" | "carousel" | "story">("card");
   const [refUrls, setRefUrls] = useState<Record<string, string>>({});
   const [importing, setImporting] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     if (!casa) return;
@@ -274,6 +316,39 @@ const AdminPresets = () => {
               </CardHeader>
               {activePreset === preset.id && (
                 <CardContent className="space-y-4">
+                  <button
+                    onClick={() => setLibraryOpen((prev) => ({ ...prev, [preset.id]: !prev[preset.id] }))}
+                    className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-primary transition-colors"
+                  >
+                    {libraryOpen[preset.id] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    <Library className="w-4 h-4" />
+                    Biblioteca deste preset ({(files[preset.id] ?? []).length} arquivo(s))
+                  </button>
+                  {libraryOpen[preset.id] && (
+                    <div className="rounded-lg border border-border divide-y divide-border">
+                      {(files[preset.id] ?? []).length === 0 && (
+                        <p className="text-xs text-muted-foreground p-3">Nenhum arquivo enviado ainda.</p>
+                      )}
+                      {(files[preset.id] ?? []).map((f) => {
+                        const { role, formats } = describeFile(preset, f);
+                        return (
+                          <div key={f.id} className="p-3 space-y-1">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-sm font-medium truncate">{f.storage_path.split("/").pop()}</span>
+                              <span className="text-[10px] uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded shrink-0">
+                                {KIND_LABEL[f.kind]}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {role}
+                              {formats.length > 0 && ` — ${formats.map((fmt) => FORMATS.find((x) => x.id === fmt)?.label ?? fmt).join(", ")}`}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <Tabs value={activeFormat} onValueChange={(v) => setActiveFormat(v as typeof activeFormat)}>
                     <TabsList>
                       {FORMATS.map((f) => (
@@ -339,6 +414,7 @@ const AdminPresets = () => {
                             referenceUrl={refUrl}
                             spec={preset.template_spec[f.id] ?? emptySpec(f.w, f.h)}
                             onChange={(next) => saveSpec(preset, f.id, next)}
+                            onUploadSticker={(file) => addSticker(preset, f.id, file)}
                           />
                         ) : (
                           <p className="text-sm text-muted-foreground">Envie a arte de referência deste formato para começar a mapear os campos.</p>
