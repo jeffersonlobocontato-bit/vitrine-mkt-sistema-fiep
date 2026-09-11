@@ -439,9 +439,20 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-4">
       <div className="space-y-2">
-        <Button size="sm" variant={showGrid ? "default" : "outline"} onClick={() => setShowGrid((v) => !v)}>
-          <Grid3x3 className="w-4 h-4 mr-1" /> Grade (5mm)
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button size="sm" variant={showGrid ? "default" : "outline"} onClick={() => setShowGrid((v) => !v)}>
+            <Grid3x3 className="w-4 h-4 mr-1" /> Grade (5mm)
+          </Button>
+          <Button
+            size="sm"
+            variant={showReference ? "default" : "outline"}
+            onClick={() => setShowReference((v) => !v)}
+            title="A arte de referência serve apenas para posicionar os elementos — ela não é o fundo do criativo gerado"
+          >
+            {showReference ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
+            Referência {showReference ? "visível" : "oculta"}
+          </Button>
+        </div>
         <div
           ref={containerRef}
           onMouseDown={onCanvasMouseDown}
@@ -451,7 +462,9 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
           className="relative border border-border rounded-lg overflow-hidden select-none cursor-crosshair"
           style={{ aspectRatio: `${spec.width} / ${spec.height}`, maxHeight: "70vh" }}
         >
-          <img data-canvas-bg src={referenceUrl} alt="Referência" className="absolute inset-0 w-full h-full object-cover pointer-events-none" draggable={false} />
+          {showReference && (
+            <img data-canvas-bg src={referenceUrl} alt="Referência" className="absolute inset-0 w-full h-full object-cover pointer-events-none" draggable={false} />
+          )}
 
           {showGrid && (
             <div
