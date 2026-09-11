@@ -179,6 +179,7 @@ const AdminPresets = () => {
       const backgroundPaths = [...(current.backgroundPaths ?? [])];
       const stickers: StickerAsset[] = [...(current.stickers ?? [])];
       let framePath = current.imageSlot?.framePath;
+      let maskPath = current.imageSlot?.maskPath;
       let fontFamily = current.fontFamily;
       let fontPath = current.fontPath;
       let imported = 0;
@@ -216,10 +217,17 @@ const AdminPresets = () => {
         if (lower.includes("fundo")) {
           backgroundPaths.push(path);
         } else if (lower.startsWith("contorno")) {
+          // moldura: só o traço, desenhada por cima da foto.
           framePath = path;
+        } else if (lower.startsWith("container") && lower.includes("contorno")) {
+          // combinado (preenchimento + traço achatados numa imagem só) — é só referência
+          // visual de como fica o conjunto; usar como máscara juntaria o traço no recorte,
+          // e usar como moldura esconderia a foto (é opaco). Guardado como componente, sem
+          // virar camada funcional.
         } else if (lower.startsWith("container")) {
-          // silhueta/máscara do slot de foto — guardada como componente de referência;
-          // a máscara em si já é modelada pelos raios de canto do imageSlot.
+          // silhueta preenchida: a máscara real do recorte (inclui formas em degrau que o
+          // raio de canto sozinho não reproduz).
+          maskPath = path;
         } else {
           const key = filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
           if (!stickers.some((s) => s.key === key)) {
@@ -240,9 +248,9 @@ const AdminPresets = () => {
         fontFamily,
         fontPath,
         imageSlot: current.imageSlot
-          ? { ...current.imageSlot, framePath }
-          : framePath
-            ? { x: 10, y: 10, w: 80, h: 40, framePath }
+          ? { ...current.imageSlot, framePath, maskPath }
+          : framePath || maskPath
+            ? { x: 10, y: 10, w: 80, h: 40, framePath, maskPath }
             : current.imageSlot,
       };
       await saveSpec(preset, format, nextSpec);
@@ -271,6 +279,23 @@ const AdminPresets = () => {
     if (!stickers.some((s) => s.key === key)) stickers.push({ key, path, x: 10, y: 4, w: 30, h: 8 });
     await saveSpec(preset, format, { ...current, stickers });
     toast.success("Elemento gráfico adicionado — ajuste a posição no editor abaixo");
+    await loadFiles(preset.id);
+  };
+
+  /**
+   * Sobe a máscara real do slot de imagem (silhueta preenchida, ex.: Container_Foto.png) —
+   * recorta a foto pixel a pixel pelo alfa dela em vez de aproximar por raio de canto.
+   */
+  const addMask = async (preset: Preset, format: "card" | "carousel" | "story", file: File) => {
+    const path = `${preset.id}/mask-${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
+    const { error: upErr } = await supabase.storage.from("preset-assets").upload(path, file);
+    if (upErr) return toast.error(upErr.message);
+    await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
+
+    const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1440);
+    const imageSlot = current.imageSlot ? { ...current.imageSlot, maskPath: path } : { x: 10, y: 10, w: 80, h: 40, maskPath: path };
+    await saveSpec(preset, format, { ...current, imageSlot });
+    toast.success("Máscara aplicada ao slot de imagem");
     await loadFiles(preset.id);
   };
 
@@ -437,6 +462,7 @@ const AdminPresets = () => {
                             onChange={(next) => saveSpec(preset, f.id, next)}
                             onUploadSticker={(file) => addSticker(preset, f.id, file)}
                             onUploadFont={(file) => addFont(preset, f.id, file)}
+                            onUploadMask={(file) => addMask(preset, f.id, file)}
                           />
                         ) : (
                           <p className="text-sm text-muted-foreground">Envie a arte de referência deste formato para começar a mapear os campos.</p>
