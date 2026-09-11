@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, ArrowLeft, Plus, Upload } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Upload, PackageOpen } from "lucide-react";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import { PresetEditor } from "@/components/PresetEditor";
-import type { FormatTemplateSpec, TemplateSpec } from "@/components/TemplateRenderer";
+import type { FormatTemplateSpec, StickerAsset, TemplateSpec } from "@/components/TemplateRenderer";
 
 // agent_presets/preset_reference_files ainda não estão totalmente no types.ts gerado
 // (as colunas novas de casa/template_spec não existem no tipo antigo).
@@ -52,6 +53,7 @@ const AdminPresets = () => {
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [activeFormat, setActiveFormat] = useState<"card" | "carousel" | "story">("card");
   const [refUrls, setRefUrls] = useState<Record<string, string>>({});
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     if (!casa) return;
@@ -120,6 +122,95 @@ const AdminPresets = () => {
     await loadFiles(preset.id);
   };
 
+  /**
+   * Importa um pacote de componentes (.zip) exportado pelo design — ex.: Fundo_01/02/03.png
+   * (variações de fundo), Contorno_Container_Foto.png (moldura da foto), NR01_Transparente.png
+   * (elemento gráfico fixo), Foun.ttf (fonte de marca). Classifica cada arquivo pelo nome,
+   * sobe tudo pro bucket preset-assets, grava um preset_reference_files por item (rastreável
+   * mesmo quando não vira campo do template_spec) e funde o resultado no spec do formato ativo.
+   */
+  const importComponentPack = async (preset: Preset, format: "card" | "carousel" | "story", file: File) => {
+    setImporting(true);
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1350);
+      const backgroundPaths = [...(current.backgroundPaths ?? [])];
+      const stickers: StickerAsset[] = [...(current.stickers ?? [])];
+      let framePath = current.imageSlot?.framePath;
+      let fontFamily = current.fontFamily;
+      let fontPath = current.fontPath;
+      let imported = 0;
+
+      const entries = Object.values(zip.files).filter((f) => !f.dir);
+      for (const entry of entries) {
+        const filename = entry.name.split("/").pop() || entry.name;
+        const lower = filename.toLowerCase();
+        const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+        const path = `${preset.id}/pack-${crypto.randomUUID()}-${filename.replace(/[^\w.-]+/g, "_")}`;
+
+        if (ext === "otf" || ext === "ttf") {
+          const blob = await entry.async("blob");
+          const { error } = await supabase.storage.from("preset-assets").upload(path, blob);
+          if (error) continue;
+          await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
+          imported++;
+          // Prioriza .ttf (compatibilidade de navegador mais ampla) sobre .otf quando os dois vierem no pacote.
+          if (!fontPath || ext === "ttf") {
+            fontPath = path;
+            fontFamily = filename.replace(/\.(otf|ttf)$/i, "").replace(/[_-]/g, " ").trim() || "Marca";
+          }
+          continue;
+        }
+
+        if (!["png", "jpg", "jpeg", "webp"].includes(ext)) continue;
+        const blob = await entry.async("blob");
+        const { error } = await supabase.storage.from("preset-assets").upload(path, blob);
+        if (error) continue;
+        await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
+        imported++;
+
+        if (lower.includes("fundo")) {
+          backgroundPaths.push(path);
+        } else if (lower.startsWith("contorno")) {
+          framePath = path;
+        } else if (lower.startsWith("container")) {
+          // silhueta/máscara do slot de foto — guardada como componente de referência;
+          // a máscara em si já é modelada pelos raios de canto do imageSlot.
+        } else {
+          const key = filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+          if (!stickers.some((s) => s.key === key)) {
+            stickers.push({ key, path, x: 10, y: 10, w: 30, h: 15 });
+          }
+        }
+      }
+
+      if (imported === 0) {
+        toast.error("Nenhum arquivo reconhecido dentro do .zip");
+        return;
+      }
+
+      const nextSpec: FormatTemplateSpec = {
+        ...current,
+        backgroundPaths,
+        stickers,
+        fontFamily,
+        fontPath,
+        imageSlot: current.imageSlot
+          ? { ...current.imageSlot, framePath }
+          : framePath
+            ? { x: 10, y: 10, w: 80, h: 40, framePath }
+            : current.imageSlot,
+      };
+      await saveSpec(preset, format, nextSpec);
+      toast.success(`${imported} elemento(s) importado(s)`);
+      await loadFiles(preset.id);
+    } catch (e) {
+      toast.error("Falha ao importar pacote: " + (e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const saveSpec = async (preset: Preset, format: "card" | "carousel" | "story", spec: FormatTemplateSpec) => {
     const nextSpec = { ...preset.template_spec, [format]: spec };
     setPresets((prev) => prev.map((p) => (p.id === preset.id ? { ...p, template_spec: nextSpec } : p)));
@@ -185,7 +276,30 @@ const AdminPresets = () => {
                               <span><Upload className="w-4 h-4 mr-1" /> Enviar arte</span>
                             </Button>
                           </label>
+                          <label className="cursor-pointer">
+                            <input
+                              type="file"
+                              accept=".zip"
+                              className="hidden"
+                              disabled={importing}
+                              onChange={(e) => {
+                                if (e.target.files?.[0]) importComponentPack(preset, f.id, e.target.files[0]);
+                                e.target.value = "";
+                              }}
+                            />
+                            <Button size="sm" variant="outline" disabled={importing} asChild>
+                              <span>
+                                {importing ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <PackageOpen className="w-4 h-4 mr-1" />}
+                                Importar pacote (.zip)
+                              </span>
+                            </Button>
+                          </label>
                         </div>
+                        <p className="text-xs text-muted-foreground">
+                          O .zip pode trazer fundos (nome com "fundo" — várias variações sorteadas por geração), moldura
+                          da foto (nome começando com "contorno"), elementos gráficos fixos (qualquer outro PNG) e a
+                          fonte de marca (.ttf/.otf) — cada um é classificado e guardado automaticamente.
+                        </p>
                         {refUrl ? (
                           <PresetEditor
                             referenceUrl={refUrl}
