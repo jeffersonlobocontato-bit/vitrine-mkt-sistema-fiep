@@ -170,6 +170,28 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
     onChange({ ...spec, stickers: (spec.stickers ?? []).filter((s) => s.key !== key) });
   };
 
+  // Resolve signed URLs dos stickers pra mostrar a imagem real no grid.
+  useEffect(() => {
+    const stickers = spec.stickers ?? [];
+    if (stickers.length === 0) {
+      setStickerUrls({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        stickers.map(async (s) => {
+          const { data } = await supabase.storage.from("preset-assets").createSignedUrl(s.path, 3600);
+          return [s.key, data?.signedUrl ?? ""] as const;
+        }),
+      );
+      if (!cancelled) setStickerUrls(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [spec.stickers]);
+
   const selectedField = spec.fields.find((f) => f.key === selected);
   const gridPercentX = ((GRID_MM * PX_PER_MM) / spec.width) * 100;
   const gridPercentY = ((GRID_MM * PX_PER_MM) / spec.height) * 100;
