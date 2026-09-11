@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3, GripVertical, ChevronUp, Type, Layers, Link2, Link2Off } from "lucide-react";
+import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3, GripVertical, ChevronUp, Type, Layers, Link2, Link2Off, Eye, EyeOff } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
 
@@ -175,6 +175,10 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const [stickerUrls, setStickerUrls] = useState<Record<string, string>>({});
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
+  // A arte de referência serve só de base pra posicionar os elementos — o fundo
+  // real do criativo vem dos backgrounds do preset. Esse toggle esconde a
+  // referência pra conferir o resultado sem ela atrapalhar a leitura.
+  const [showReference, setShowReference] = useState(true);
   const [dragLayerId, setDragLayerId] = useState<string | null>(null);
 
   const pct = (clientX: number, clientY: number) => {
