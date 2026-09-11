@@ -250,7 +250,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
           <input
             ref={stickerInputRef}
             type="file"
-            accept="image/png,image/webp"
+            accept="image/png,image/webp,image/svg+xml,.svg"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.[0] && onUploadSticker) onUploadSticker(e.target.files[0]);

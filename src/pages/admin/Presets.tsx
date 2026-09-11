@@ -204,7 +204,7 @@ const AdminPresets = () => {
           continue;
         }
 
-        if (!["png", "jpg", "jpeg", "webp"].includes(ext)) continue;
+        if (!["png", "jpg", "jpeg", "webp", "svg"].includes(ext)) continue;
         const blob = await entry.async("blob");
         const { error } = await supabase.storage.from("preset-assets").upload(path, blob);
         if (error) continue;
@@ -391,7 +391,7 @@ const AdminPresets = () => {
                           <label className="cursor-pointer">
                             <input
                               type="file"
-                              accept="image/png,image/webp"
+                              accept="image/png,image/webp,image/svg+xml,.svg"
                               className="hidden"
                               onChange={(e) => e.target.files?.[0] && addSticker(preset, f.id, e.target.files[0])}
                             />
