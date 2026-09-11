@@ -80,11 +80,21 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
       const p = pct(e.clientX, e.clientY);
       const dx = p.x - drag.startX;
       const dy = p.y - drag.startY;
-      updateField(drag.key, (f) =>
-        drag.mode === "move"
-          ? { ...f, x: Math.max(0, Math.min(100 - f.w, drag.field.x + dx)), y: Math.max(0, Math.min(100 - f.h, drag.field.y + dy)) }
-          : { ...f, w: Math.max(4, Math.min(100 - f.x, drag.field.w + dx)), h: Math.max(3, Math.min(100 - f.y, drag.field.h + dy)) },
-      );
+      if (drag.kind === "field") {
+        const f0 = drag.field;
+        updateField(drag.key, (f) =>
+          drag.mode === "move"
+            ? { ...f, x: Math.max(0, Math.min(100 - f.w, f0.x + dx)), y: Math.max(0, Math.min(100 - f.h, f0.y + dy)) }
+            : { ...f, w: Math.max(4, Math.min(100 - f.x, f0.w + dx)), h: Math.max(3, Math.min(100 - f.y, f0.h + dy)) },
+        );
+      } else {
+        const s0 = drag.sticker;
+        updateSticker(drag.key,
+          drag.mode === "move"
+            ? { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) }
+            : { w: Math.max(2, Math.min(100 - s0.x, s0.w + dx)), h: Math.max(2, Math.min(100 - s0.y, s0.h + dy)) },
+        );
+      }
     }
   };
 
@@ -119,7 +129,15 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
     e.stopPropagation();
     setSelected(field.key);
     const p = pct(e.clientX, e.clientY);
-    setDrag({ key: field.key, mode, startX: p.x, startY: p.y, field });
+    setDrag({ kind: "field", key: field.key, mode, startX: p.x, startY: p.y, field });
+  };
+
+  const startDragSticker = (e: React.MouseEvent, sticker: StickerAsset, mode: "move" | "resize") => {
+    e.stopPropagation();
+    setSelectedStickerKey(sticker.key);
+    setSelected(null);
+    const p = pct(e.clientX, e.clientY);
+    setDrag({ kind: "sticker", key: sticker.key, mode, startX: p.x, startY: p.y, sticker });
   };
 
   const addImageSlot = () => {
