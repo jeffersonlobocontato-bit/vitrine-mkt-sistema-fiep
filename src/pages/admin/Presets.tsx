@@ -67,6 +67,20 @@ const describeFile = (preset: Preset, file: RefFile): { role: string; formats: s
   return { role: "Enviado, mas ainda não posicionado em nenhum campo do preset", formats: [] };
 };
 
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|svg)$/i;
+
+/** Nome amigável pra legenda da miniatura na biblioteca de arrastar — remove o prefixo
+ * técnico (tipo-uuid-) que os uploads gravam no storage_path e a extensão. */
+const libraryLabel = (path: string) => {
+  const filename = path.split("/").pop() ?? path;
+  const cleaned = filename
+    .replace(/^(?:pack|sticker|mask|font|componente)-[0-9a-fA-F-]{36}-/, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  return cleaned || filename;
+};
+
 interface Preset {
   id: string;
   name: string;
@@ -115,7 +129,11 @@ const AdminPresets = () => {
     const { data } = await db.from("preset_reference_files").select("*").eq("preset_id", presetId);
     setFiles((prev) => ({ ...prev, [presetId]: (data ?? []) as RefFile[] }));
     for (const f of (data ?? []) as RefFile[]) {
-      if (f.kind === "arte_pronta") {
+      // arte_pronta = fundo de referência do formato ativo; componente com extensão de imagem
+      // = qualquer elemento gráfico já importado (fundo/moldura/máscara/sticker avulso) — os
+      // dois precisam de miniatura: a arte pro fundo do editor, os componentes pra biblioteca
+      // arrastável (ver PresetEditor.libraryAssets).
+      if (f.kind === "arte_pronta" || (f.kind === "componente" && IMAGE_EXT_RE.test(f.storage_path))) {
         const { data: signed } = await supabase.storage.from("preset-assets").createSignedUrl(f.storage_path, 3600);
         // Chave é o storage_path puro (já é único, contém preset_id) — resolve independente
         // de qual formato está ativo na tela no momento do upload.
@@ -350,6 +368,12 @@ const AdminPresets = () => {
           // A arte de referência do formato ativo é a que está gravada em spec.backgroundPath
           // (setada no upload — ver uploadReference), não precisa mais adivinhar por nome de arquivo.
           const refUrl = spec.backgroundPath ? refUrls[spec.backgroundPath] : undefined;
+          // Biblioteca arrastável (ver PresetEditor): todo componente de imagem já importado
+          // pro preset, com miniatura resolvida — o designer arrasta direto pra cima do card,
+          // igual Canva, em vez de subir de novo ou digitar posição manualmente.
+          const libraryAssets = (files[preset.id] ?? [])
+            .filter((f) => f.kind === "componente" && IMAGE_EXT_RE.test(f.storage_path) && refUrls[f.storage_path])
+            .map((f) => ({ path: f.storage_path, name: libraryLabel(f.storage_path), url: refUrls[f.storage_path] }));
 
           return (
             <Card key={preset.id}>
@@ -463,6 +487,7 @@ const AdminPresets = () => {
                             onUploadSticker={(file) => addSticker(preset, f.id, file)}
                             onUploadFont={(file) => addFont(preset, f.id, file)}
                             onUploadMask={(file) => addMask(preset, f.id, file)}
+                            libraryAssets={libraryAssets}
                           />
                         ) : (
                           <p className="text-sm text-muted-foreground">Envie a arte de referência deste formato para começar a mapear os campos.</p>
