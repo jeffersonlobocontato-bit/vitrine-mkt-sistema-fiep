@@ -248,6 +248,25 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
           </div>
         ))}
 
+        {(spec.stickers ?? []).map((s) => (
+          <div
+            key={s.key}
+            onMouseDown={(e) => startDragSticker(e, s, "move")}
+            className={`absolute border-2 ${selectedStickerKey === s.key ? "border-amber-500" : "border-violet-500"} cursor-move overflow-hidden`}
+            style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }}
+          >
+            {stickerUrls[s.key] ? (
+              <img src={stickerUrls[s.key]} alt={s.key} className="w-full h-full object-contain pointer-events-none" draggable={false} />
+            ) : (
+              <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{s.key}</span>
+            )}
+            <div
+              onMouseDown={(e) => startDragSticker(e, s, "resize")}
+              className="absolute bottom-0 right-0 w-3 h-3 bg-violet-600 cursor-se-resize"
+            />
+          </div>
+        ))}
+
         {drawing && (
           <div
             className="absolute border-2 border-dashed border-primary bg-primary/10"
