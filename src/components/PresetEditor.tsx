@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3, GripVertical, ChevronUp, Type, Layers } from "lucide-react";
+import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3, GripVertical, ChevronUp, Type, Layers, Link2, Link2Off } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
 
@@ -53,6 +53,64 @@ interface LayerItem {
 }
 
 /**
+ * Controle de tamanho em pixels (na resolução de referência do formato, ex.: 1080×1440),
+ * com cadeado de proporção — igual ao painel de transformação do Adobe/Figma (W:/H: com um
+ * ícone de corrente no meio). Cadeado fechado (padrão): mudar W recalcula H (e vice-versa)
+ * mantendo a proporção atual; cadeado aberto: cada eixo estica livre, independente.
+ */
+const PixelSizeInputs = ({
+  wPercent,
+  hPercent,
+  canvasWidth,
+  canvasHeight,
+  onChange,
+}: {
+  wPercent: number;
+  hPercent: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  onChange: (next: { w: number; h: number }) => void;
+}) => {
+  const [locked, setLocked] = useState(true);
+  const wPx = Math.round((wPercent / 100) * canvasWidth);
+  const hPx = Math.round((hPercent / 100) * canvasHeight);
+
+  const setWPx = (nextWPx: number) => {
+    if (!Number.isFinite(nextWPx) || nextWPx <= 0) return;
+    const nextHPx = locked && wPx > 0 ? nextWPx * (hPx / wPx) : hPx;
+    onChange({ w: (nextWPx / canvasWidth) * 100, h: (nextHPx / canvasHeight) * 100 });
+  };
+  const setHPx = (nextHPx: number) => {
+    if (!Number.isFinite(nextHPx) || nextHPx <= 0) return;
+    const nextWPx = locked && hPx > 0 ? nextHPx * (wPx / hPx) : wPx;
+    onChange({ w: (nextWPx / canvasWidth) * 100, h: (nextHPx / canvasHeight) * 100 });
+  };
+
+  return (
+    <div className="flex items-end gap-1.5">
+      <div className="space-y-0.5">
+        <Label className="text-[10px] text-muted-foreground">W: px</Label>
+        <Input type="number" className="h-8 w-20" value={wPx} onChange={(e) => setWPx(Number(e.target.value))} />
+      </div>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="h-8 w-8 shrink-0"
+        onClick={() => setLocked((v) => !v)}
+        title={locked ? "Proporção travada — clique pra destravar" : "Proporção livre — clique pra travar"}
+      >
+        {locked ? <Link2 className="w-4 h-4" /> : <Link2Off className="w-4 h-4 text-muted-foreground" />}
+      </Button>
+      <div className="space-y-0.5">
+        <Label className="text-[10px] text-muted-foreground">H: px</Label>
+        <Input type="number" className="h-8 w-20" value={hPx} onChange={(e) => setHPx(Number(e.target.value))} />
+      </div>
+    </div>
+  );
+};
+
+/**
  * Editor visual do preset: o designer desenha retângulos sobre a arte de
  * referência (exportada do Adobe) para definir cada campo de texto e o slot
  * de imagem. Isso vira o template_spec que o TemplateRenderer usa depois — a
@@ -94,6 +152,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     setSelectedStickerKey(null);
   };
 
+  /** Shift segurado durante o resize trava a proporção original do elemento (escala largura e
+   * altura juntas, a partir do maior delta dos dois eixos); soltar Shift volta a esticar cada
+   * eixo livre e independente, mudando a proporção — igual Adobe/Canva. */
+  const resizeSize = (w0: number, h0: number, dx: number, dy: number, lockAspect: boolean) => {
+    if (!lockAspect) return { w: w0 + dx, h: h0 + dy };
+    const scale = Math.max((w0 + dx) / w0, (h0 + dy) / h0);
+    const w = w0 * scale;
+    return { w, h: w * (h0 / w0) };
+  };
+
   const onCanvasMouseMove = (e: React.MouseEvent) => {
     if (drawing) {
       const p = pct(e.clientX, e.clientY);
@@ -104,25 +172,28 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
       const dy = p.y - drag.startY;
       if (drag.kind === "field") {
         const f0 = drag.field;
-        updateField(drag.key, (f) =>
-          drag.mode === "move"
-            ? { ...f, x: Math.max(0, Math.min(100 - f.w, f0.x + dx)), y: Math.max(0, Math.min(100 - f.h, f0.y + dy)) }
-            : { ...f, w: Math.max(4, Math.min(100 - f.x, f0.w + dx)), h: Math.max(3, Math.min(100 - f.y, f0.h + dy)) },
-        );
+        if (drag.mode === "move") {
+          updateField(drag.key, (f) => ({ ...f, x: Math.max(0, Math.min(100 - f.w, f0.x + dx)), y: Math.max(0, Math.min(100 - f.h, f0.y + dy)) }));
+        } else {
+          const { w, h } = resizeSize(f0.w, f0.h, dx, dy, e.shiftKey);
+          updateField(drag.key, (f) => ({ ...f, w: Math.max(4, Math.min(100 - f.x, w)), h: Math.max(3, Math.min(100 - f.y, h)) }));
+        }
       } else if (drag.kind === "slot") {
         const s0 = drag.slot;
-        updateImageSlot(
-          drag.mode === "move"
-            ? { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) }
-            : { w: Math.max(4, Math.min(100 - s0.x, s0.w + dx)), h: Math.max(4, Math.min(100 - s0.y, s0.h + dy)) },
-        );
+        if (drag.mode === "move") {
+          updateImageSlot({ x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) });
+        } else {
+          const { w, h } = resizeSize(s0.w, s0.h, dx, dy, e.shiftKey);
+          updateImageSlot({ w: Math.max(4, Math.min(100 - s0.x, w)), h: Math.max(4, Math.min(100 - s0.y, h)) });
+        }
       } else {
         const s0 = drag.sticker;
-        updateSticker(drag.key,
-          drag.mode === "move"
-            ? { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) }
-            : { w: Math.max(2, Math.min(100 - s0.x, s0.w + dx)), h: Math.max(2, Math.min(100 - s0.y, s0.h + dy)) },
-        );
+        if (drag.mode === "move") {
+          updateSticker(drag.key, { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) });
+        } else {
+          const { w, h } = resizeSize(s0.w, s0.h, dx, dy, e.shiftKey);
+          updateSticker(drag.key, { w: Math.max(2, Math.min(100 - s0.x, w)), h: Math.max(2, Math.min(100 - s0.y, h)) });
+        }
       }
     }
   };
@@ -579,9 +650,14 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               <div className="grid grid-cols-2 gap-2">
                 <Input type="number" value={Math.round(spec.imageSlot.x)} onChange={(e) => updateImageSlot({ x: Number(e.target.value) })} placeholder="x %" />
                 <Input type="number" value={Math.round(spec.imageSlot.y)} onChange={(e) => updateImageSlot({ y: Number(e.target.value) })} placeholder="y %" />
-                <Input type="number" value={Math.round(spec.imageSlot.w)} onChange={(e) => updateImageSlot({ w: Number(e.target.value) })} placeholder="largura %" />
-                <Input type="number" value={Math.round(spec.imageSlot.h)} onChange={(e) => updateImageSlot({ h: Number(e.target.value) })} placeholder="altura %" />
               </div>
+              <PixelSizeInputs
+                wPercent={spec.imageSlot.w}
+                hPercent={spec.imageSlot.h}
+                canvasWidth={spec.width}
+                canvasHeight={spec.height}
+                onChange={({ w, h }) => updateImageSlot({ w, h })}
+              />
               <div className="flex items-center justify-between pt-1">
                 <Label className="text-xs text-muted-foreground">Máscara real (recorte pixel a pixel — tem prioridade sobre o raio abaixo)</Label>
                 <Button size="sm" variant="outline" onClick={() => maskInputRef.current?.click()} disabled={!onUploadMask}>
@@ -673,6 +749,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                   placeholder="Nº máx. de linhas"
                 />
               </div>
+              <div className="pt-1 space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Tamanho da caixa (resolução {spec.width}×{spec.height})</Label>
+                <PixelSizeInputs
+                  wPercent={selectedField.w}
+                  hPercent={selectedField.h}
+                  canvasWidth={spec.width}
+                  canvasHeight={spec.height}
+                  onChange={({ w, h }) => updateField(selectedField.key, (f) => ({ ...f, w, h }))}
+                />
+              </div>
               <div className="flex items-center justify-between pt-1 border-t border-border">
                 <div>
                   <Label className="text-xs font-medium">Campo de contato</Label>
@@ -708,12 +794,17 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                       <Trash2 className="w-3.5 h-3.5 text-destructive" />
                     </Button>
                   </div>
-                  <div className="grid grid-cols-4 gap-1">
+                  <div className="grid grid-cols-2 gap-1">
                     <Input type="number" value={Math.round(s.x)} onChange={(e) => updateSticker(s.key, { x: Number(e.target.value) })} placeholder="x %" />
                     <Input type="number" value={Math.round(s.y)} onChange={(e) => updateSticker(s.key, { y: Number(e.target.value) })} placeholder="y %" />
-                    <Input type="number" value={Math.round(s.w)} onChange={(e) => updateSticker(s.key, { w: Number(e.target.value) })} placeholder="larg %" />
-                    <Input type="number" value={Math.round(s.h)} onChange={(e) => updateSticker(s.key, { h: Number(e.target.value) })} placeholder="alt %" />
                   </div>
+                  <PixelSizeInputs
+                    wPercent={s.w}
+                    hPercent={s.h}
+                    canvasWidth={spec.width}
+                    canvasHeight={spec.height}
+                    onChange={({ w, h }) => updateSticker(s.key, { w, h })}
+                  />
                 </div>
               ))}
             </CardContent>

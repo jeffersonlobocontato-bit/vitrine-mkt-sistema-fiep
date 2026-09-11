@@ -120,26 +120,70 @@ async function chat(ctx: Ctx, step: string, messages: unknown[], schemaName: str
   return JSON.parse(args)
 }
 
-async function generateImage(ctx: Ctx, prompt: string): Promise<string | null> {
+/** Proporções fotográficas comuns — usadas pra descrever o enquadramento pedido à IA de
+ * imagem num termo que ela reconhece bem (ex.: "9:16"), em vez da fração exata e feia do slot. */
+const COMMON_RATIOS: { label: string; value: number }[] = [
+  { label: '1:1', value: 1 },
+  { label: '4:5', value: 4 / 5 },
+  { label: '3:4', value: 3 / 4 },
+  { label: '2:3', value: 2 / 3 },
+  { label: '9:16', value: 9 / 16 },
+  { label: '4:3', value: 4 / 3 },
+  { label: '3:2', value: 3 / 2 },
+  { label: '16:9', value: 16 / 9 },
+]
+
+/** A partir do slot de imagem do template (em % do canvas), calcula a orientação e a
+ * proporção mais próxima — pra pedir a foto já nascer perto do formato certo, em vez de gerar
+ * sempre quadrada e deixar o object-fit:cover descartar um pedaço grande dela no recorte. */
+function imageOrientation(spec: FormatTemplateSpec): { orientation: 'portrait' | 'landscape' | 'square'; ratioLabel: string; openaiSize: string } {
+  const slot = spec.imageSlot
+  if (!slot) return { orientation: 'square', ratioLabel: '1:1', openaiSize: '1024x1024' }
+  const wPx = (slot.w / 100) * spec.width
+  const hPx = (slot.h / 100) * spec.height
+  const ratio = wPx / hPx
+  const nearest = COMMON_RATIOS.reduce((best, r) => (Math.abs(r.value - ratio) < Math.abs(best.value - ratio) ? r : best))
+  const orientation = ratio > 1.1 ? 'landscape' : ratio < 0.9 ? 'portrait' : 'square'
+  const openaiSize = orientation === 'landscape' ? '1792x1024' : orientation === 'portrait' ? '1024x1792' : '1024x1024'
+  return { orientation, ratioLabel: nearest.label, openaiSize }
+}
+
+async function generateImage(ctx: Ctx, prompt: string, openaiSize: string): Promise<string | null> {
   const model = ctx.preset.image_model
-  const started = Date.now()
   const useOpenAI = ctx.preset.provider === 'openai' && OPENAI_API_KEY
-  const body = useOpenAI
-    ? { model, prompt, size: '1024x1024', n: 1 }
-    : { model, messages: [{ role: 'user', content: prompt }], modalities: ['image', 'text'] }
-  const res = await fetch(endpoint(ctx.preset, '/images/generations'), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey(ctx.preset)}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    await logUsage(ctx, { step: 'imagem', model, cost_usd: 0, duration_ms: Date.now() - started, success: false })
-    throw Object.assign(new Error(`Image ${res.status}: ${text}`), { status: res.status })
+
+  const attempt = async (size: string) => {
+    const started = Date.now()
+    const body = useOpenAI
+      ? { model, prompt, size, n: 1 }
+      : { model, messages: [{ role: 'user', content: prompt }], modalities: ['image', 'text'] }
+    const res = await fetch(endpoint(ctx.preset, '/images/generations'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey(ctx.preset)}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      await logUsage(ctx, { step: 'imagem', model, cost_usd: 0, duration_ms: Date.now() - started, success: false })
+      throw Object.assign(new Error(`Image ${res.status}: ${text}`), { status: res.status })
+    }
+    const json = await res.json()
+    await logUsage(ctx, { step: 'imagem', model, images: 1, cost_usd: imageCostUsd(model, 1), duration_ms: Date.now() - started })
+    return json?.data?.[0]?.b64_json ?? null
   }
-  const json = await res.json()
-  await logUsage(ctx, { step: 'imagem', model, images: 1, cost_usd: imageCostUsd(model, 1), duration_ms: Date.now() - started })
-  return json?.data?.[0]?.b64_json ?? null
+
+  try {
+    return await attempt(useOpenAI ? openaiSize : '1024x1024')
+  } catch (e) {
+    // Tamanho não-quadrado varia entre modelos OpenAI (dall-e-3 aceita 1024x1792/1792x1024,
+    // gpt-image-1 aceita 1024x1536/1536x1024) — se o tamanho pedido não bater com o modelo
+    // configurado no preset, cai pro quadrado (todo modelo aceita) em vez de perder a geração.
+    const status = (e as { status?: number }).status
+    if (useOpenAI && openaiSize !== '1024x1024' && status !== 402 && status !== 403) {
+      return await attempt('1024x1024')
+    }
+    throw e
+  }
 }
 
 async function uploadImage(b64: string, path: string) {
@@ -374,6 +418,11 @@ Deno.serve(async (req) => {
         : values,
     }))
     if (spec.imageSlot) {
+      const { orientation, ratioLabel, openaiSize } = imageOrientation(spec)
+      const framingInstruction =
+        orientation === 'square'
+          ? 'Square framing, main subject centered.'
+          : `${orientation === 'portrait' ? 'Vertical portrait' : 'Horizontal landscape'} orientation, aspect ratio close to ${ratioLabel}. Keep the main subject centered with generous margin on all sides — this image will be cropped to exactly fill a ${orientation} frame, so avoid putting anything important near the edges.`
       for (let i = 0; i < slides.length; i++) {
         if (pool.length > 0) {
           ;(slides[i] as { image_url?: string }).image_url = pool[i % pool.length]
@@ -382,8 +431,8 @@ Deno.serve(async (req) => {
         if (imageBudget <= 0) continue
         imageBudget--
         try {
-          const imagePrompt = `Background image for a "${campanha.nome}" social media creative. Context: ${itemContext}. Editorial, professional, no text, no letters, no watermark, matches an institutional brand.`
-          const b64 = await generateImage(ctx, imagePrompt)
+          const imagePrompt = `Background image for a "${campanha.nome}" social media creative. Context: ${itemContext}. Editorial, professional, no text, no letters, no watermark, matches an institutional brand. ${framingInstruction}`
+          const b64 = await generateImage(ctx, imagePrompt, openaiSize)
           if (b64) {
             ;(slides[i] as { image_url?: string }).image_url = await uploadImage(b64, `${runId}/${format}-${i + 1}-${crypto.randomUUID()}.png`)
           }
