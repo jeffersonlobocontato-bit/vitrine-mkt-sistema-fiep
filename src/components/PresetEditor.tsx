@@ -70,6 +70,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
     const p = pct(e.clientX, e.clientY);
     setDrawing({ x0: p.x, y0: p.y, x: p.x, y: p.y });
     setSelected(null);
+    setSelectedStickerKey(null);
   };
 
   const onCanvasMouseMove = (e: React.MouseEvent) => {
@@ -128,6 +129,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   const startDragField = (e: React.MouseEvent, field: TemplateField, mode: "move" | "resize") => {
     e.stopPropagation();
     setSelected(field.key);
+    setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
     setDrag({ kind: "field", key: field.key, mode, startX: p.x, startY: p.y, field });
   };
