@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,7 +46,14 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   const stickerInputRef = useRef<HTMLInputElement>(null);
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x: number; y: number } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [drag, setDrag] = useState<{ key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField } | null>(null);
+  const [selectedStickerKey, setSelectedStickerKey] = useState<string | null>(null);
+  const [drag, setDrag] = useState<
+    | { kind: "field"; key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField }
+    | { kind: "sticker"; key: string; mode: "move" | "resize"; startX: number; startY: number; sticker: StickerAsset }
+    | null
+  >(null);
+  // Signed URLs das imagens de sticker pra exibir o elemento direto no grid (o bucket é privado).
+  const [stickerUrls, setStickerUrls] = useState<Record<string, string>>({});
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
 
@@ -62,6 +70,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
     const p = pct(e.clientX, e.clientY);
     setDrawing({ x0: p.x, y0: p.y, x: p.x, y: p.y });
     setSelected(null);
+    setSelectedStickerKey(null);
   };
 
   const onCanvasMouseMove = (e: React.MouseEvent) => {
@@ -72,11 +81,21 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
       const p = pct(e.clientX, e.clientY);
       const dx = p.x - drag.startX;
       const dy = p.y - drag.startY;
-      updateField(drag.key, (f) =>
-        drag.mode === "move"
-          ? { ...f, x: Math.max(0, Math.min(100 - f.w, drag.field.x + dx)), y: Math.max(0, Math.min(100 - f.h, drag.field.y + dy)) }
-          : { ...f, w: Math.max(4, Math.min(100 - f.x, drag.field.w + dx)), h: Math.max(3, Math.min(100 - f.y, drag.field.h + dy)) },
-      );
+      if (drag.kind === "field") {
+        const f0 = drag.field;
+        updateField(drag.key, (f) =>
+          drag.mode === "move"
+            ? { ...f, x: Math.max(0, Math.min(100 - f.w, f0.x + dx)), y: Math.max(0, Math.min(100 - f.h, f0.y + dy)) }
+            : { ...f, w: Math.max(4, Math.min(100 - f.x, f0.w + dx)), h: Math.max(3, Math.min(100 - f.y, f0.h + dy)) },
+        );
+      } else {
+        const s0 = drag.sticker;
+        updateSticker(drag.key,
+          drag.mode === "move"
+            ? { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) }
+            : { w: Math.max(2, Math.min(100 - s0.x, s0.w + dx)), h: Math.max(2, Math.min(100 - s0.y, s0.h + dy)) },
+        );
+      }
     }
   };
 
@@ -110,8 +129,17 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   const startDragField = (e: React.MouseEvent, field: TemplateField, mode: "move" | "resize") => {
     e.stopPropagation();
     setSelected(field.key);
+    setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
-    setDrag({ key: field.key, mode, startX: p.x, startY: p.y, field });
+    setDrag({ kind: "field", key: field.key, mode, startX: p.x, startY: p.y, field });
+  };
+
+  const startDragSticker = (e: React.MouseEvent, sticker: StickerAsset, mode: "move" | "resize") => {
+    e.stopPropagation();
+    setSelectedStickerKey(sticker.key);
+    setSelected(null);
+    const p = pct(e.clientX, e.clientY);
+    setDrag({ kind: "sticker", key: sticker.key, mode, startX: p.x, startY: p.y, sticker });
   };
 
   const addImageSlot = () => {
@@ -143,6 +171,28 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
   const removeSticker = (key: string) => {
     onChange({ ...spec, stickers: (spec.stickers ?? []).filter((s) => s.key !== key) });
   };
+
+  // Resolve signed URLs dos stickers pra mostrar a imagem real no grid.
+  useEffect(() => {
+    const stickers = spec.stickers ?? [];
+    if (stickers.length === 0) {
+      setStickerUrls({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        stickers.map(async (s) => {
+          const { data } = await supabase.storage.from("preset-assets").createSignedUrl(s.path, 3600);
+          return [s.key, data?.signedUrl ?? ""] as const;
+        }),
+      );
+      if (!cancelled) setStickerUrls(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [spec.stickers]);
 
   const selectedField = spec.fields.find((f) => f.key === selected);
   const gridPercentX = ((GRID_MM * PX_PER_MM) / spec.width) * 100;
@@ -196,6 +246,25 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker }: 
             <div
               onMouseDown={(e) => startDragField(e, f, "resize")}
               className="absolute bottom-0 right-0 w-3 h-3 bg-amber-600 cursor-se-resize"
+            />
+          </div>
+        ))}
+
+        {(spec.stickers ?? []).map((s) => (
+          <div
+            key={s.key}
+            onMouseDown={(e) => startDragSticker(e, s, "move")}
+            className={`absolute border-2 ${selectedStickerKey === s.key ? "border-amber-500" : "border-violet-500"} cursor-move overflow-hidden`}
+            style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }}
+          >
+            {stickerUrls[s.key] ? (
+              <img src={stickerUrls[s.key]} alt={s.key} className="w-full h-full object-contain pointer-events-none" draggable={false} />
+            ) : (
+              <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{s.key}</span>
+            )}
+            <div
+              onMouseDown={(e) => startDragSticker(e, s, "resize")}
+              className="absolute bottom-0 right-0 w-3 h-3 bg-violet-600 cursor-se-resize"
             />
           </div>
         ))}
