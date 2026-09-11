@@ -82,25 +82,34 @@ const Ranking = () => {
   }, [loading, user, canView, navigate]);
 
   const load = useCallback(async () => {
-    const casaIds = isPlatformAdmin ? casas.map((c) => c.id) : gestorCasaIds;
+    const casaIds = casaIdsKey ? casaIdsKey.split(",") : [];
     if (casaIds.length === 0) return setFetching(false);
     setFetching(true);
 
-    const [{ data: profiles }, { data: members }, { data: unidades }, { data: presets }, { data: docs }, { data: runs }, { data: downloads }] =
-      await Promise.all([
-        db.from("profiles").select("id, email"),
-        db.from("casa_members").select("user_id, role").in("casa_id", casaIds),
-        db.from("unidades").select("id").in("casa_id", casaIds),
-        db.from("agent_presets").select("created_by").in("casa_id", casaIds),
-        db.from("knowledge_documents").select("created_by").in("casa_id", casaIds),
-        db.from("instagram_runs").select("created_by, instagram_creatives(reviewed_by)").in("casa_id", casaIds),
-        db.from("creative_downloads").select("user_id").in("casa_id", casaIds),
-      ]);
+    // uma consulta que falha (tabela ausente/sem permissão) não pode travar a tela
+    const safe = async (fn: () => Promise<{ data: unknown }>) => {
+      try {
+        const { data } = await fn();
+        return (data ?? []) as any[];
+      } catch {
+        return [] as any[];
+      }
+    };
+
+    const [profiles, members, unidades, presets, docs, runs, downloads] = await Promise.all([
+      safe(() => db.from("profiles").select("id, email")),
+      safe(() => db.from("casa_members").select("user_id, role").in("casa_id", casaIds)),
+      safe(() => db.from("unidades").select("id").in("casa_id", casaIds)),
+      safe(() => db.from("agent_presets").select("created_by").in("casa_id", casaIds)),
+      safe(() => db.from("knowledge_documents").select("created_by").in("casa_id", casaIds)),
+      safe(() => db.from("instagram_runs").select("created_by, instagram_creatives(reviewed_by)").in("casa_id", casaIds)),
+      safe(() => db.from("creative_downloads").select("user_id").in("casa_id", casaIds)),
+    ]);
 
     const unidadeIds = ((unidades ?? []) as { id: string }[]).map((u) => u.id);
-    const { data: units } = unidadeIds.length
-      ? await db.from("user_units").select("user_id").in("unidade_id", unidadeIds)
-      : { data: [] };
+    const units = unidadeIds.length
+      ? await safe(() => db.from("user_units").select("user_id").in("unidade_id", unidadeIds))
+      : [];
 
     const emailOf = (id: string) => (profiles ?? []).find((p: { id: string; email: string }) => p.id === id)?.email ?? id.slice(0, 8);
 
