@@ -111,6 +111,47 @@ const PixelSizeInputs = ({
 };
 
 /**
+ * Caixa recolhível pra lateral do editor não virar uma rolagem infinita — cada seção
+ * (camadas, slot de imagem, campo selecionado, stickers...) abre/fecha independente, estado
+ * não controlado (cada instância guarda o próprio aberto/fechado). `actions` fica sempre
+ * visível no cabeçalho (ex.: botão de excluir), mesmo com a seção recolhida.
+ */
+const CollapsibleCard = ({
+  title,
+  icon,
+  actions,
+  defaultOpen = true,
+  children,
+}: {
+  title: React.ReactNode;
+  icon?: React.ReactNode;
+  actions?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card>
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium flex-1 min-w-0 text-left"
+          >
+            <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
+            {icon}
+            <span className="truncate">{title}</span>
+          </button>
+          {actions}
+        </div>
+        {open && <div className="space-y-2">{children}</div>}
+      </CardContent>
+    </Card>
+  );
+};
+
+/**
  * Editor visual do preset: o designer desenha retângulos sobre a arte de
  * referência (exportada do Adobe) para definir cada campo de texto e o slot
  * de imagem. Isso vira o template_spec que o TemplateRenderer usa depois — a
@@ -569,11 +610,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
         </div>
 
         {layerItems.length > 0 && (
-          <Card>
-            <CardContent className="p-3 space-y-2">
-              <Label className="text-xs font-medium flex items-center gap-1">
-                <Layers className="w-3.5 h-3.5" /> Camadas
-              </Label>
+          <CollapsibleCard title="Camadas" icon={<Layers className="w-3.5 h-3.5" />}>
               <p className="text-[10px] text-muted-foreground">
                 Arraste pra mudar a ordem — o de cima fica na frente, igual no Adobe.
               </p>
@@ -630,8 +667,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
+          </CollapsibleCard>
         )}
 
         {!spec.imageSlot ? (
@@ -639,14 +675,14 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
             <Plus className="w-4 h-4 mr-1" /> Adicionar slot de imagem
           </Button>
         ) : (
-          <Card>
-            <CardContent className="p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium">Slot de imagem</Label>
-                <Button size="icon" variant="ghost" onClick={() => onChange({ ...spec, imageSlot: undefined })}>
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
-              </div>
+          <CollapsibleCard
+            title="Slot de imagem"
+            actions={
+              <Button size="icon" variant="ghost" onClick={() => onChange({ ...spec, imageSlot: undefined })}>
+                <Trash2 className="w-4 h-4 text-destructive" />
+              </Button>
+            }
+          >
               <div className="grid grid-cols-2 gap-2">
                 <Input type="number" value={Math.round(spec.imageSlot.x)} onChange={(e) => updateImageSlot({ x: Number(e.target.value) })} placeholder="x %" />
                 <Input type="number" value={Math.round(spec.imageSlot.y)} onChange={(e) => updateImageSlot({ y: Number(e.target.value) })} placeholder="y %" />
@@ -703,19 +739,18 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                   e.target.value = "";
                 }}
               />
-            </CardContent>
-          </Card>
+          </CollapsibleCard>
         )}
 
         {selectedField && (
-          <Card>
-            <CardContent className="p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium">Campo selecionado</Label>
-                <Button size="icon" variant="ghost" onClick={() => removeField(selectedField.key)}>
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
-              </div>
+          <CollapsibleCard
+            title="Campo selecionado"
+            actions={
+              <Button size="icon" variant="ghost" onClick={() => removeField(selectedField.key)}>
+                <Trash2 className="w-4 h-4 text-destructive" />
+              </Button>
+            }
+          >
               <Input
                 value={selectedField.label}
                 onChange={(e) => updateField(selectedField.key, (f) => ({ ...f, label: e.target.value }))}
@@ -769,23 +804,20 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                   onCheckedChange={(checked) => updateField(selectedField.key, (f) => ({ ...f, dataBound: checked }))}
                 />
               </div>
-            </CardContent>
-          </Card>
+          </CollapsibleCard>
         )}
 
         {((spec.backgroundPaths?.length ?? 0) > 0 || spec.fontFamily) && (
-          <Card>
-            <CardContent className="p-3 space-y-1 text-xs text-muted-foreground">
-              {(spec.backgroundPaths?.length ?? 0) > 0 && <p>🖼️ {spec.backgroundPaths!.length} variação(ões) de fundo — uma é sorteada a cada geração.</p>}
-              {spec.fontFamily && <p>🔤 Fonte de marca: {spec.fontFamily}{spec.fontPath ? "" : " (sem arquivo — usando fallback)"}</p>}
-            </CardContent>
-          </Card>
+          <CollapsibleCard title="Fundo & fonte" defaultOpen={false}>
+              <div className="text-xs text-muted-foreground space-y-1">
+                {(spec.backgroundPaths?.length ?? 0) > 0 && <p>🖼️ {spec.backgroundPaths!.length} variação(ões) de fundo — uma é sorteada a cada geração.</p>}
+                {spec.fontFamily && <p>🔤 Fonte de marca: {spec.fontFamily}{spec.fontPath ? "" : " (sem arquivo — usando fallback)"}</p>}
+              </div>
+          </CollapsibleCard>
         )}
 
         {(spec.stickers?.length ?? 0) > 0 && (
-          <Card>
-            <CardContent className="p-3 space-y-3">
-              <Label className="text-xs font-medium flex items-center gap-1"><Sparkle className="w-3.5 h-3.5" /> Elementos gráficos fixos</Label>
+          <CollapsibleCard title="Elementos gráficos fixos" icon={<Sparkle className="w-3.5 h-3.5" />}>
               {spec.stickers!.map((s) => (
                 <div key={s.key} className="space-y-1 border-t border-border pt-2 first:border-0 first:pt-0">
                   <div className="flex items-center justify-between">
@@ -807,23 +839,24 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                   />
                 </div>
               ))}
-            </CardContent>
-          </Card>
+          </CollapsibleCard>
         )}
 
-        <div className="space-y-1">
-          <Label className="text-xs font-medium">Todos os campos</Label>
-          {spec.fields.length === 0 && <p className="text-xs text-muted-foreground">Nenhum campo ainda.</p>}
-          {spec.fields.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setSelected(f.key)}
-              className={`w-full text-left text-xs px-2 py-1 rounded ${selected === f.key ? "bg-amber-100" : "hover:bg-muted"}`}
-            >
-              {f.label} <span className="text-muted-foreground">({f.key})</span>
-            </button>
-          ))}
-        </div>
+        {spec.fields.length > 0 && (
+          <CollapsibleCard title={`Todos os campos (${spec.fields.length})`} defaultOpen={false}>
+              <div className="space-y-1">
+                {spec.fields.map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setSelected(f.key)}
+                    className={`w-full text-left text-xs px-2 py-1 rounded ${selected === f.key ? "bg-amber-100" : "hover:bg-muted"}`}
+                  >
+                    {f.label} <span className="text-muted-foreground">({f.key})</span>
+                  </button>
+                ))}
+              </div>
+          </CollapsibleCard>
+        )}
       </div>
     </div>
   );
