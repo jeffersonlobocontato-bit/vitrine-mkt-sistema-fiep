@@ -69,6 +69,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const [drag, setDrag] = useState<
     | { kind: "field"; key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField }
     | { kind: "sticker"; key: string; mode: "move" | "resize"; startX: number; startY: number; sticker: StickerAsset }
+    | { kind: "slot"; mode: "move" | "resize"; startX: number; startY: number; slot: NonNullable<FormatTemplateSpec["imageSlot"]> }
     | null
   >(null);
   // Signed URLs das imagens de sticker pra exibir o elemento direto no grid (o bucket é privado).
@@ -107,6 +108,13 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
           drag.mode === "move"
             ? { ...f, x: Math.max(0, Math.min(100 - f.w, f0.x + dx)), y: Math.max(0, Math.min(100 - f.h, f0.y + dy)) }
             : { ...f, w: Math.max(4, Math.min(100 - f.x, f0.w + dx)), h: Math.max(3, Math.min(100 - f.y, f0.h + dy)) },
+        );
+      } else if (drag.kind === "slot") {
+        const s0 = drag.slot;
+        updateImageSlot(
+          drag.mode === "move"
+            ? { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) }
+            : { w: Math.max(4, Math.min(100 - s0.x, s0.w + dx)), h: Math.max(4, Math.min(100 - s0.y, s0.h + dy)) },
         );
       } else {
         const s0 = drag.sticker;
@@ -160,6 +168,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     setSelected(null);
     const p = pct(e.clientX, e.clientY);
     setDrag({ kind: "sticker", key: sticker.key, mode, startX: p.x, startY: p.y, sticker });
+  };
+
+  // Container da foto: mesmo arraste dos demais elementos — antes só dava pra posicionar
+  // digitando números nos campos do painel.
+  const startDragSlot = (e: React.MouseEvent, slot: NonNullable<FormatTemplateSpec["imageSlot"]>, mode: "move" | "resize") => {
+    e.stopPropagation();
+    setSelected(null);
+    setSelectedStickerKey(null);
+    const p = pct(e.clientX, e.clientY);
+    setDrag({ kind: "slot", mode, startX: p.x, startY: p.y, slot });
   };
 
   const addImageSlot = () => {
@@ -343,10 +361,15 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               node: (
                 <div
                   key="__image__"
-                  className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium"
+                  onMouseDown={(e) => startDragSlot(e, spec.imageSlot!, "move")}
+                  className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium cursor-move"
                   style={{ left: `${spec.imageSlot.x}%`, top: `${spec.imageSlot.y}%`, width: `${spec.imageSlot.w}%`, height: `${spec.imageSlot.h}%` }}
                 >
                   <ImageIcon className="w-4 h-4 mr-1" /> Slot de imagem
+                  <div
+                    onMouseDown={(e) => startDragSlot(e, spec.imageSlot!, "resize")}
+                    className="absolute bottom-0 right-0 w-3 h-3 bg-blue-600 cursor-se-resize"
+                  />
                 </div>
               ),
             });
