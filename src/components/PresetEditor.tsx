@@ -133,17 +133,24 @@ const CollapsibleCard = ({
   return (
     <Card>
       <CardContent className="p-3 space-y-2">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-1 text-xs font-medium flex-1 min-w-0 text-left"
-          >
-            <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1 text-xs font-medium min-w-0">
             {icon}
             <span className="truncate">{title}</span>
-          </button>
-          {actions}
+          </span>
+          <div className="flex items-center gap-1 shrink-0">
+            {actions}
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => setOpen((v) => !v)}
+              title={open ? "Recolher" : "Expandir"}
+            >
+              <ChevronDown className={`w-4 h-4 transition-transform ${open ? "" : "-rotate-90"}`} />
+            </Button>
+          </div>
         </div>
         {open && <div className="space-y-2">{children}</div>}
       </CardContent>
