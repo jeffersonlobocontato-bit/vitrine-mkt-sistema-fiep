@@ -69,6 +69,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const [drag, setDrag] = useState<
     | { kind: "field"; key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField }
     | { kind: "sticker"; key: string; mode: "move" | "resize"; startX: number; startY: number; sticker: StickerAsset }
+    | { kind: "slot"; mode: "move" | "resize"; startX: number; startY: number; slot: NonNullable<FormatTemplateSpec["imageSlot"]> }
     | null
   >(null);
   // Signed URLs das imagens de sticker pra exibir o elemento direto no grid (o bucket é privado).
@@ -107,6 +108,13 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
           drag.mode === "move"
             ? { ...f, x: Math.max(0, Math.min(100 - f.w, f0.x + dx)), y: Math.max(0, Math.min(100 - f.h, f0.y + dy)) }
             : { ...f, w: Math.max(4, Math.min(100 - f.x, f0.w + dx)), h: Math.max(3, Math.min(100 - f.y, f0.h + dy)) },
+        );
+      } else if (drag.kind === "slot") {
+        const s0 = drag.slot;
+        updateImageSlot(
+          drag.mode === "move"
+            ? { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) }
+            : { w: Math.max(4, Math.min(100 - s0.x, s0.w + dx)), h: Math.max(4, Math.min(100 - s0.y, s0.h + dy)) },
         );
       } else {
         const s0 = drag.sticker;
