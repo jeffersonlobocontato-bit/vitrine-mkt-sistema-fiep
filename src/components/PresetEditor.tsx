@@ -330,48 +330,73 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
             />
           )}
 
-        {spec.imageSlot && (
-          <div
-            className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium"
-            style={{ left: `${spec.imageSlot.x}%`, top: `${spec.imageSlot.y}%`, width: `${spec.imageSlot.w}%`, height: `${spec.imageSlot.h}%` }}
-          >
-            <ImageIcon className="w-4 h-4 mr-1" /> Slot de imagem
-          </div>
-        )}
-
-        {spec.fields.map((f) => (
-          <div
-            key={f.key}
-            onMouseDown={(e) => startDragField(e, f, "move")}
-            className={`absolute border-2 ${selected === f.key ? "border-amber-500 bg-amber-400/20" : "border-emerald-500 bg-emerald-400/10"} cursor-move flex items-start p-1`}
-            style={{ left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%` }}
-          >
-            <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{f.label}</span>
-            <div
-              onMouseDown={(e) => startDragField(e, f, "resize")}
-              className="absolute bottom-0 right-0 w-3 h-3 bg-amber-600 cursor-se-resize"
-            />
-          </div>
-        ))}
-
-        {(spec.stickers ?? []).map((s) => (
-          <div
-            key={s.key}
-            onMouseDown={(e) => startDragSticker(e, s, "move")}
-            className={`absolute border-2 ${selectedStickerKey === s.key ? "border-amber-500" : "border-violet-500"} cursor-move overflow-hidden`}
-            style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }}
-          >
-            {stickerUrls[s.key] ? (
-              <img src={stickerUrls[s.key]} alt={s.key} className="w-full h-full object-contain pointer-events-none" draggable={false} />
-            ) : (
-              <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{s.key}</span>
-            )}
-            <div
-              onMouseDown={(e) => startDragSticker(e, s, "resize")}
-              className="absolute bottom-0 right-0 w-3 h-3 bg-violet-600 cursor-se-resize"
-            />
-          </div>
-        ))}
+        {/* Mesma lógica de empilhamento do TemplateRenderer: foto, stickers e campos entram
+            num único conjunto ordenado pelo `order` do painel de camadas (maior = mais na
+            frente). Assim, mudar a ordem no painel muda o preview na hora — sem isso, os
+            elementos eram desenhados numa ordem fixa (foto → campos → stickers) e o painel
+            de camadas não tinha efeito visual nenhum. */}
+        {(() => {
+          const layers: { order: number; node: JSX.Element }[] = [];
+          if (spec.imageSlot) {
+            layers.push({
+              order: spec.imageSlot.order ?? 0,
+              node: (
+                <div
+                  key="__image__"
+                  className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium"
+                  style={{ left: `${spec.imageSlot.x}%`, top: `${spec.imageSlot.y}%`, width: `${spec.imageSlot.w}%`, height: `${spec.imageSlot.h}%` }}
+                >
+                  <ImageIcon className="w-4 h-4 mr-1" /> Slot de imagem
+                </div>
+              ),
+            });
+          }
+          (spec.stickers ?? []).forEach((s, i) => {
+            layers.push({
+              order: s.order ?? i + 1,
+              node: (
+                <div
+                  key={s.key}
+                  onMouseDown={(e) => startDragSticker(e, s, "move")}
+                  className={`absolute border-2 ${selectedStickerKey === s.key ? "border-amber-500" : "border-violet-500"} cursor-move overflow-hidden`}
+                  style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }}
+                >
+                  {stickerUrls[s.key] ? (
+                    <img src={stickerUrls[s.key]} alt={s.key} className="w-full h-full object-contain pointer-events-none" draggable={false} />
+                  ) : (
+                    <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{s.key}</span>
+                  )}
+                  <div
+                    onMouseDown={(e) => startDragSticker(e, s, "resize")}
+                    className="absolute bottom-0 right-0 w-3 h-3 bg-violet-600 cursor-se-resize"
+                  />
+                </div>
+              ),
+            });
+          });
+          const stickerCount = spec.stickers?.length ?? 0;
+          spec.fields.forEach((f, i) => {
+            layers.push({
+              order: f.order ?? stickerCount + 1 + i,
+              node: (
+                <div
+                  key={f.key}
+                  onMouseDown={(e) => startDragField(e, f, "move")}
+                  className={`absolute border-2 ${selected === f.key ? "border-amber-500 bg-amber-400/20" : "border-emerald-500 bg-emerald-400/10"} cursor-move flex items-start p-1`}
+                  style={{ left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%` }}
+                >
+                  <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{f.label}</span>
+                  <div
+                    onMouseDown={(e) => startDragField(e, f, "resize")}
+                    className="absolute bottom-0 right-0 w-3 h-3 bg-amber-600 cursor-se-resize"
+                  />
+                </div>
+              ),
+            });
+          });
+          layers.sort((a, b) => a.order - b.order);
+          return layers.map((l) => l.node);
+        })()}
 
         {drawing && (
           <div
