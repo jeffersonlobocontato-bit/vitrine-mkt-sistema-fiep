@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, ArrowLeft, Plus, Upload, PackageOpen } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, Upload, PackageOpen, Sparkle } from "lucide-react";
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { PresetEditor } from "@/components/PresetEditor";
@@ -211,6 +211,25 @@ const AdminPresets = () => {
     }
   };
 
+  /**
+   * Sobe um único elemento gráfico fixo (ex.: a marca/logo recortada do card de referência do
+   * outro formato) direto como sticker — sem precisar montar um .zip pra adicionar só um item.
+   */
+  const addSticker = async (preset: Preset, format: "card" | "carousel" | "story", file: File) => {
+    const path = `${preset.id}/sticker-${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
+    const { error: upErr } = await supabase.storage.from("preset-assets").upload(path, file);
+    if (upErr) return toast.error(upErr.message);
+    await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
+
+    const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1350);
+    const key = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const stickers = [...(current.stickers ?? [])];
+    if (!stickers.some((s) => s.key === key)) stickers.push({ key, path, x: 10, y: 4, w: 30, h: 8 });
+    await saveSpec(preset, format, { ...current, stickers });
+    toast.success("Elemento gráfico adicionado — ajuste a posição no editor abaixo");
+    await loadFiles(preset.id);
+  };
+
   const saveSpec = async (preset: Preset, format: "card" | "carousel" | "story", spec: FormatTemplateSpec) => {
     const nextSpec = { ...preset.template_spec, [format]: spec };
     setPresets((prev) => prev.map((p) => (p.id === preset.id ? { ...p, template_spec: nextSpec } : p)));
@@ -294,11 +313,26 @@ const AdminPresets = () => {
                               </span>
                             </Button>
                           </label>
+                          <label className="cursor-pointer">
+                            <input
+                              type="file"
+                              accept="image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) => e.target.files?.[0] && addSticker(preset, f.id, e.target.files[0])}
+                            />
+                            <Button size="sm" variant="outline" asChild>
+                              <span><Sparkle className="w-4 h-4 mr-1" /> Elemento gráfico avulso</span>
+                            </Button>
+                          </label>
                         </div>
                         <p className="text-xs text-muted-foreground">
                           O .zip pode trazer fundos (nome com "fundo" — várias variações sorteadas por geração), moldura
                           da foto (nome começando com "contorno"), elementos gráficos fixos (qualquer outro PNG) e a
-                          fonte de marca (.ttf/.otf) — cada um é classificado e guardado automaticamente.
+                          fonte de marca (.ttf/.otf) — cada um é classificado e guardado automaticamente. Use "Elemento
+                          gráfico avulso" pra adicionar só um item (ex.: a marca Sesi recortada de outro formato) sem
+                          precisar montar um zip novo — elementos gráficos são sempre a mesma imagem, a IA nunca escreve
+                          neles (a palavra-chave "NR-01", por exemplo, não precisa de campo de texto — só posicionar
+                          o elemento já importado).
                         </p>
                         {refUrl ? (
                           <PresetEditor

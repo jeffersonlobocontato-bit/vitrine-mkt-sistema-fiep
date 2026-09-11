@@ -223,8 +223,11 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
               width: `${f.w}%`,
               // sem altura fixa: o clamp abaixo limita o nº de linhas, mas a caixa
               // cresce até caber o texto — altura fixa + overflow hidden cortava
-              // descendentes/partes das letras (ex.: "Sesi" cortada na headline).
+              // descendentes/partes das letras (ex.: "Sesi" cortada na headline). O
+              // maxHeight é só uma rede de segurança pra um texto anormalmente longo
+              // não vazar pra fora do canvas (corta a caixa toda, nunca no meio de uma letra).
               minHeight: `${f.h}%`,
+              maxHeight: `${100 - f.y}%`,
               fontFamily: f.font || spec.fontFamily || "inherit",
               fontSize: `${Math.round((f.size ?? 32) * scale)}px`,
               color: f.color || "#111827",
