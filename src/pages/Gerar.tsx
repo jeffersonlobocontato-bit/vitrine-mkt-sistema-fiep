@@ -196,8 +196,11 @@ const Gerar = () => {
 
   useEffect(() => {
     const paths = activeSpec?.backgroundPaths;
-    // Várias variações de fundo (pacote importado) -> sorteia uma por geração; senão usa o fundo único.
-    const chosen = paths && paths.length > 0 ? paths[Math.floor(Math.random() * paths.length)] : activeSpec?.backgroundPath;
+    // A arte marcada no editor (backgroundPath) é a que o designer usou pra posicionar os
+    // marcadores — ela tem prioridade. Só quando o preset não tem essa arte definida é que
+    // sorteamos uma variação do pacote (antes o sorteio vinha primeiro e a arte final saía
+    // com layout diferente do setup, jogando texto e foto pra fora do lugar).
+    const chosen = activeSpec?.backgroundPath ?? (paths && paths.length > 0 ? paths[Math.floor(Math.random() * paths.length)] : undefined);
     if (!chosen) return setBackgroundUrl(null);
     supabase.storage.from("preset-assets").createSignedUrl(chosen, 3600).then(({ data }) => setBackgroundUrl(data?.signedUrl ?? null));
   }, [activeSpec?.backgroundPath, activeSpec?.backgroundPaths]);
