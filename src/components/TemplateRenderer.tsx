@@ -31,6 +31,21 @@ export interface ImageSlot {
   radiusBottomLeft?: number;
   borderColor?: string;
   borderWidth?: number; // px, na resolução de referência do template
+  /** caminho no bucket `preset-assets` de uma moldura pronta (PNG com transparência, ex.:
+   * "Contorno_Container_Foto.png") desenhada por cima da foto — quando presente, muda o modo
+   * de composição (ver nota de camadas no componente abaixo). */
+  framePath?: string;
+}
+
+/** Elemento gráfico fixo (logo, selo, ícone, palavra-chave já desenhada) — sempre a mesma
+ * imagem em toda geração, nunca decidido pela IA. Posição/tamanho em % do canvas. */
+export interface StickerAsset {
+  key: string;
+  path: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 export interface FormatTemplateSpec {
@@ -39,8 +54,16 @@ export interface FormatTemplateSpec {
   /** caminho no bucket `preset-assets` da arte de fundo fixa (logo, gradiente, textura) —
    * resolvido para signed URL pelo chamador e passado via prop `backgroundUrl`. */
   backgroundPath?: string;
+  /** variações de fundo (ex.: pacote com Fundo_01/02/03) — quando presente, uma é sorteada a
+   * cada geração; tem prioridade sobre `backgroundPath`. */
+  backgroundPaths?: string[];
   fields: TemplateField[];
   imageSlot?: ImageSlot;
+  stickers?: StickerAsset[];
+  /** tipografia de marca importada (ex.: fonte Foun) — nome e caminho (arquivo .ttf/.otf) no
+   * bucket `preset-assets`; resolvido para signed URL pelo chamador e passado via prop `fontUrl`. */
+  fontFamily?: string;
+  fontPath?: string;
 }
 
 export type TemplateSpec = Partial<Record<"card" | "carousel" | "story", FormatTemplateSpec>>;
@@ -49,10 +72,16 @@ interface Props {
   spec: FormatTemplateSpec;
   /** texto de cada campo, chaveado por field.key — gerado pela IA respeitando maxLines/tamanho de cada campo */
   values: Record<string, string>;
-  /** URL já resolvida (signed) da arte de fundo fixa — ver spec.backgroundPath */
+  /** URL já resolvida (signed) da arte de fundo fixa — ver spec.backgroundPath/backgroundPaths */
   backgroundUrl?: string | null;
   /** URL já resolvida (signed) da foto que entra no slot de imagem */
   imageUrl?: string | null;
+  /** URL já resolvida (signed) da moldura — ver spec.imageSlot.framePath */
+  frameUrl?: string | null;
+  /** URLs já resolvidas (signed) dos elementos gráficos fixos, chaveadas por sticker.key */
+  stickerUrls?: Record<string, string>;
+  /** URL já resolvida (signed) do arquivo de fonte — ver spec.fontPath */
+  fontUrl?: string | null;
   /** largura de render em px — 1080 na exportação, menor na prévia */
   previewWidth?: number;
 }
@@ -62,20 +91,59 @@ interface Props {
  * designer já definiu no editor de preset (template_spec). Substitui o
  * CreativeCanvas.tsx hardcoded — um preset por Casa/campanha, não um só global.
  *
- * Duas camadas de imagem, sempre juntas quando presentes (não é um "ou outro"):
- * a arte de fundo fixa (logo, gradiente, textura de marca) cobre o canvas inteiro,
- * e a foto (banco de imagens ou gerada por IA) entra só na "janela" do imageSlot,
- * com máscara de cantos arredondados quando configurada.
+ * Duas camadas de imagem, sempre juntas quando presentes (não é um "ou outro"). Existem dois
+ * modos de composição, escolhidos automaticamente pela presença de uma moldura (frameUrl):
+ *
+ * - **Sem moldura própria** (preset legado, ex.: card do Sesi original): a arte de fundo é um
+ *   PNG único já com a "janela" da foto recortada (transparente) — a foto entra ATRÁS e a arte
+ *   de fundo cobre por cima, então ela só aparece através do recorte. A borda do slot (CSS) fica
+ *   por cima de tudo.
+ * - **Com moldura própria** (pacote de componentes separados, ex.: fundo opaco + Contorno_*.png):
+ *   a arte de fundo é opaca e cobre o canvas por trás de tudo; a foto entra por cima, recortada
+ *   pelo slot; a moldura (PNG com transparência) é desenhada por cima da foto para fechar a
+ *   composição — nesse modo não faz sentido desenhar o fundo de novo sobre a foto.
  */
 export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
-  ({ spec, values, backgroundUrl, imageUrl, previewWidth = 1080 }, ref) => {
+  ({ spec, values, backgroundUrl, imageUrl, frameUrl, stickerUrls, fontUrl, previewWidth = 1080 }, ref) => {
     const scale = previewWidth / spec.width;
     const height = Math.round(spec.height * scale);
     const slot = spec.imageSlot;
+    const hasOwnFrame = Boolean(frameUrl);
 
     const slotBorderRadius = slot
       ? `${(slot.radiusTopLeft ?? 0) * scale}px ${(slot.radiusTopRight ?? 0) * scale}px ${(slot.radiusBottomRight ?? 0) * scale}px ${(slot.radiusBottomLeft ?? 0) * scale}px`
       : undefined;
+
+    const photoNode = imageUrl && slot && (
+      <div
+        style={{
+          position: "absolute",
+          left: `${slot.x}%`,
+          top: `${slot.y}%`,
+          width: `${slot.w}%`,
+          height: `${slot.h}%`,
+          overflow: "hidden",
+          borderRadius: slotBorderRadius,
+        }}
+      >
+        <img src={imageUrl} alt="" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        {/* Moldura própria por cima da foto: um box-shadow no MESMO elemento da <img> ficaria
+            escondido atrás dela (o filho sempre pinta sobre o background/box-shadow do próprio
+            pai), por isso é um overlay position:absolute separado, depois da foto na pintura. */}
+        {hasOwnFrame && (
+          <img src={frameUrl!} alt="" crossOrigin="anonymous" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill" }} />
+        )}
+      </div>
+    );
+
+    const backgroundNode = backgroundUrl && (
+      <img
+        src={backgroundUrl}
+        alt=""
+        crossOrigin="anonymous"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    );
 
     return (
       <div
@@ -86,51 +154,63 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
           position: "relative",
           overflow: "hidden",
           backgroundColor: "#E5E7EB",
+          fontFamily: spec.fontFamily || undefined,
         }}
       >
-        {/* 1) Foto primeiro: ela fica ATRÁS da arte de fundo. A arte (moldura com
-            janela transparente) pinta por cima, então a foto "vaza" só pela janela —
-            e a moldura/borda da arte nunca é coberta pela foto. */}
-        {imageUrl && slot && (
-          <div
-            style={{
-              position: "absolute",
-              left: `${slot.x}%`,
-              top: `${slot.y}%`,
-              width: `${slot.w}%`,
-              height: `${slot.h}%`,
-              overflow: "hidden",
-              borderRadius: slotBorderRadius,
-            }}
-          >
-            <img src={imageUrl} alt="" crossOrigin="anonymous" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          </div>
+        {fontUrl && spec.fontFamily && (
+          <style>{`@font-face{font-family:'${spec.fontFamily}';src:url('${fontUrl}');font-display:swap;}`}</style>
         )}
 
-        {/* 2) Arte de fundo fixa (logo, gradiente, moldura) por cima da foto. */}
-        {backgroundUrl && (
-          <img
-            src={backgroundUrl}
-            alt=""
-            crossOrigin="anonymous"
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        )}
-
-        {/* 3) Borda do slot por cima de tudo (foto + arte). */}
-        {imageUrl && slot && slot.borderColor && (
-          <div
-            style={{
-              position: "absolute",
-              left: `${slot.x}%`,
-              top: `${slot.y}%`,
-              width: `${slot.w}%`,
-              height: `${slot.h}%`,
-              borderRadius: slotBorderRadius,
-              boxShadow: `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}`,
-              pointerEvents: "none",
-            }}
-          />
+        {hasOwnFrame ? (
+          <>
+            {backgroundNode}
+            {spec.stickers?.map((s) => {
+              const url = stickerUrls?.[s.key];
+              if (!url) return null;
+              return (
+                <img
+                  key={s.key}
+                  src={url}
+                  alt=""
+                  crossOrigin="anonymous"
+                  style={{ position: "absolute", left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%`, objectFit: "contain" }}
+                />
+              );
+            })}
+            {photoNode}
+          </>
+        ) : (
+          <>
+            {photoNode}
+            {backgroundNode}
+            {imageUrl && slot && slot.borderColor && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${slot.x}%`,
+                  top: `${slot.y}%`,
+                  width: `${slot.w}%`,
+                  height: `${slot.h}%`,
+                  borderRadius: slotBorderRadius,
+                  boxShadow: `inset 0 0 0 ${(slot.borderWidth ?? 3) * scale}px ${slot.borderColor}`,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
+            {spec.stickers?.map((s) => {
+              const url = stickerUrls?.[s.key];
+              if (!url) return null;
+              return (
+                <img
+                  key={s.key}
+                  src={url}
+                  alt=""
+                  crossOrigin="anonymous"
+                  style={{ position: "absolute", left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%`, objectFit: "contain" }}
+                />
+              );
+            })}
+          </>
         )}
 
         {spec.fields.map((f) => (
@@ -145,7 +225,7 @@ export const TemplateRenderer = forwardRef<HTMLDivElement, Props>(
               // cresce até caber o texto — altura fixa + overflow hidden cortava
               // descendentes/partes das letras (ex.: "Sesi" cortada na headline).
               minHeight: `${f.h}%`,
-              fontFamily: f.font || "inherit",
+              fontFamily: f.font || spec.fontFamily || "inherit",
               fontSize: `${Math.round((f.size ?? 32) * scale)}px`,
               color: f.color || "#111827",
               textAlign: f.align ?? "left",

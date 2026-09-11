@@ -3,9 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Image as ImageIcon } from "lucide-react";
+import { Trash2, Plus, Image as ImageIcon, Sparkle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import type { FormatTemplateSpec, TemplateField } from "@/components/TemplateRenderer";
+import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
 
 interface Props {
   referenceUrl: string;
@@ -101,6 +101,14 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
     onChange({ ...spec, imageSlot: { ...spec.imageSlot, ...patch } });
   };
 
+  const updateSticker = (key: string, patch: Partial<StickerAsset>) => {
+    onChange({ ...spec, stickers: (spec.stickers ?? []).map((s) => (s.key === key ? { ...s, ...patch } : s)) });
+  };
+
+  const removeSticker = (key: string) => {
+    onChange({ ...spec, stickers: (spec.stickers ?? []).filter((s) => s.key !== key) });
+  };
+
   const selectedField = spec.fields.find((f) => f.key === selected);
 
   return (
@@ -185,11 +193,19 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
                 <Input type="number" value={spec.imageSlot.radiusBottomLeft ?? 0} onChange={(e) => updateImageSlot({ radiusBottomLeft: Number(e.target.value) })} placeholder="inf. esquerdo" />
                 <Input type="number" value={spec.imageSlot.radiusBottomRight ?? 0} onChange={(e) => updateImageSlot({ radiusBottomRight: Number(e.target.value) })} placeholder="inf. direito" />
               </div>
-              <Label className="text-xs text-muted-foreground pt-1">Borda de contorno (opcional)</Label>
+              <Label className="text-xs text-muted-foreground pt-1">Borda de contorno (usada só se não houver moldura importada)</Label>
               <div className="grid grid-cols-2 gap-2">
                 <Input type="color" value={spec.imageSlot.borderColor ?? "#D4E157"} onChange={(e) => updateImageSlot({ borderColor: e.target.value })} />
                 <Input type="number" value={spec.imageSlot.borderWidth ?? 0} onChange={(e) => updateImageSlot({ borderWidth: Number(e.target.value) })} placeholder="espessura px" />
               </div>
+              {spec.imageSlot.framePath && (
+                <div className="flex items-center justify-between text-xs bg-muted rounded-md px-2 py-1.5">
+                  <span className="truncate">Moldura importada: {spec.imageSlot.framePath.split("/").pop()}</span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => updateImageSlot({ framePath: undefined })}>
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -246,6 +262,39 @@ export const PresetEditor = ({ referenceUrl, spec, onChange }: Props) => {
                   onCheckedChange={(checked) => updateField(selectedField.key, (f) => ({ ...f, dataBound: checked }))}
                 />
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {((spec.backgroundPaths?.length ?? 0) > 0 || spec.fontFamily) && (
+          <Card>
+            <CardContent className="p-3 space-y-1 text-xs text-muted-foreground">
+              {(spec.backgroundPaths?.length ?? 0) > 0 && <p>🖼️ {spec.backgroundPaths!.length} variação(ões) de fundo — uma é sorteada a cada geração.</p>}
+              {spec.fontFamily && <p>🔤 Fonte de marca: {spec.fontFamily}{spec.fontPath ? "" : " (sem arquivo — usando fallback)"}</p>}
+            </CardContent>
+          </Card>
+        )}
+
+        {(spec.stickers?.length ?? 0) > 0 && (
+          <Card>
+            <CardContent className="p-3 space-y-3">
+              <Label className="text-xs font-medium flex items-center gap-1"><Sparkle className="w-3.5 h-3.5" /> Elementos gráficos fixos</Label>
+              {spec.stickers!.map((s) => (
+                <div key={s.key} className="space-y-1 border-t border-border pt-2 first:border-0 first:pt-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium truncate">{s.key}</span>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => removeSticker(s.key)}>
+                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    <Input type="number" value={Math.round(s.x)} onChange={(e) => updateSticker(s.key, { x: Number(e.target.value) })} placeholder="x %" />
+                    <Input type="number" value={Math.round(s.y)} onChange={(e) => updateSticker(s.key, { y: Number(e.target.value) })} placeholder="y %" />
+                    <Input type="number" value={Math.round(s.w)} onChange={(e) => updateSticker(s.key, { w: Number(e.target.value) })} placeholder="larg %" />
+                    <Input type="number" value={Math.round(s.h)} onChange={(e) => updateSticker(s.key, { h: Number(e.target.value) })} placeholder="alt %" />
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         )}
