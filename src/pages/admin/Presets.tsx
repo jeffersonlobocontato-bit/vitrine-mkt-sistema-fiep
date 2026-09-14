@@ -534,6 +534,24 @@ const AdminPresets = () => {
                       <option key={c.id} value={c.id}>{c.nome}</option>
                     ))}
                   </select>
+                  {/* Contagem de campos de texto reais por formato — elementos gráficos fixos
+                      (stickers: logo, badge, box etc.) não contam aqui, só spec.fields[]. Um
+                      formato com 0 campos fica com o card montado mas invisível em Gerar.tsx. */}
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {FORMATS.map((f) => {
+                      const count = preset.template_spec[f.id]?.fields?.length ?? 0;
+                      return (
+                        <span
+                          key={f.id}
+                          className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            count > 0 ? "bg-muted text-muted-foreground" : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                          }`}
+                        >
+                          {f.label}: {count} campo{count === 1 ? "" : "s"}{count === 0 && " ⚠"}
+                        </span>
+                      );
+                    })}
+                  </div>
                 </div>
               </CardHeader>
               {activePreset === preset.id && (

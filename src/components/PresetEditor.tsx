@@ -28,6 +28,7 @@ import {
   AlignVerticalJustifyStart,
   AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd,
+  AlertTriangle,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
@@ -1147,6 +1148,18 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
           Arraste sobre a arte para criar um campo de texto, ou use "Novo elemento" pra já começar com uma posição
           típica pronta. Clique e arraste um campo para mover; use o quadradinho no canto para redimensionar.
         </p>
+
+        {spec.fields.length === 0 && (
+          <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <p>
+              Este formato ainda não tem nenhum <strong>campo de texto</strong> — só elementos gráficos fixos
+              (logo, badge, box, etc). Elementos gráficos fixos são posicionáveis igual um campo, mas a IA não
+              escreve neles: por isso este preset não aparece na tela de Gerar ainda. Use "Novo elemento" →
+              Headline/Subtítulo/CTA (ou desenhe um retângulo sobre a arte) para criar pelo menos um campo real.
+            </p>
+          </div>
+        )}
 
         <div className="relative">
           <Button size="sm" variant="outline" onClick={() => setShowAddMenu((v) => !v)}>
