@@ -69,6 +69,63 @@ const describeFile = (preset: Preset, file: RefFile): { role: string; formats: s
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|webp|svg)$/i;
 
+/**
+ * Recorta a margem transparente ao redor do conteúdo visível de um PNG (via canal alfa) —
+ * sem isso, um arquivo exportado num canvas maior que o desenho (comum em máscaras/elementos
+ * recortados do card inteiro, ex.: "Container_Foto.png") vira um sticker cuja caixa de seleção
+ * sobra bem maior que a forma visível, o que atrapalha alinhar esse elemento com os outros
+ * (a régua/guia de encaixe usa a caixa, não o desenho). Só aplica em elementos gráficos soltos
+ * (stickers) — fundo/moldura/máscara continuam usando o arquivo original, sem recorte, porque
+ * esses três precisam bater exatamente com o slot de imagem ou o canvas inteiro.
+ */
+async function trimTransparentPadding(source: Blob): Promise<{ blob: Blob; width: number; height: number; trimmed: boolean }> {
+  const bitmap = await createImageBitmap(source);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { blob: source, width: bitmap.width, height: bitmap.height, trimmed: false };
+  ctx.drawImage(bitmap, 0, 0);
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  const ALPHA_THRESHOLD = 8;
+  let minX = canvas.width;
+  let minY = canvas.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      if (data[(y * canvas.width + x) * 4 + 3] > ALPHA_THRESHOLD) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  // Nada opaco (imagem toda transparente) — não há o que recortar.
+  if (maxX < 0) return { blob: source, width: canvas.width, height: canvas.height, trimmed: false };
+
+  const w = maxX - minX + 1;
+  const h = maxY - minY + 1;
+  const marginX = canvas.width - w;
+  const marginY = canvas.height - h;
+  // Só vale a pena recortar (e subir um arquivo novo) se sobrar margem de verdade.
+  if (marginX < canvas.width * 0.03 && marginY < canvas.height * 0.03) {
+    return { blob: source, width: canvas.width, height: canvas.height, trimmed: false };
+  }
+
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const outCtx = out.getContext("2d");
+  if (!outCtx) return { blob: source, width: canvas.width, height: canvas.height, trimmed: false };
+  outCtx.drawImage(bitmap, minX, minY, w, h, 0, 0, w, h);
+  const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, "image/png"));
+  if (!blob) return { blob: source, width: canvas.width, height: canvas.height, trimmed: false };
+  return { blob, width: w, height: h, trimmed: true };
+}
+
 /** Nome amigável pra legenda da miniatura na biblioteca de arrastar — remove o prefixo
  * técnico (tipo-uuid-) que os uploads gravam no storage_path e a extensão. */
 const libraryLabel = (path: string) => {
@@ -249,32 +306,54 @@ const AdminPresets = () => {
         }
 
         if (!["png", "jpg", "jpeg", "webp", "svg"].includes(ext)) continue;
-        const blob = await entry.async("blob");
+        const rawBlob = await entry.async("blob");
+
+        const isFundo = lower.includes("fundo");
+        const isContorno = lower.startsWith("contorno");
+        const isContainerContorno = lower.startsWith("container") && lower.includes("contorno");
+        const isContainer = lower.startsWith("container");
+        // Só o elemento gráfico solto (nenhum dos papéis funcionais acima) recorta a margem
+        // transparente — fundo/moldura/máscara precisam bater exatamente com o slot de
+        // imagem/canvas inteiro, recortar quebraria o alinhamento deles (ver trimTransparentPadding).
+        const isGenericSticker = !isFundo && !isContorno && !isContainerContorno && !isContainer;
+
+        let blob: Blob = rawBlob;
+        let trimmedDims: { width: number; height: number } | null = null;
+        if (isGenericSticker && ext !== "svg") {
+          const t = await trimTransparentPadding(rawBlob).catch(() => null);
+          if (t?.trimmed) {
+            blob = t.blob;
+            trimmedDims = { width: t.width, height: t.height };
+          }
+        }
+
         // .svg vindo do zip chega sem content-type; sem isso a imagem não renderiza depois.
-        const contentType = ext === "svg" ? "image/svg+xml" : undefined;
+        const contentType = ext === "svg" ? "image/svg+xml" : trimmedDims ? "image/png" : undefined;
         const { error } = await supabase.storage.from("preset-assets").upload(path, blob, contentType ? { contentType } : undefined);
         if (error) continue;
         await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
         imported++;
 
-        if (lower.includes("fundo")) {
+        if (isFundo) {
           backgroundPaths.push(path);
-        } else if (lower.startsWith("contorno")) {
+        } else if (isContorno) {
           // moldura: só o traço, desenhada por cima da foto.
           framePath = path;
-        } else if (lower.startsWith("container") && lower.includes("contorno")) {
+        } else if (isContainerContorno) {
           // combinado (preenchimento + traço achatados numa imagem só) — é só referência
           // visual de como fica o conjunto; usar como máscara juntaria o traço no recorte,
           // e usar como moldura esconderia a foto (é opaco). Guardado como componente, sem
           // virar camada funcional.
-        } else if (lower.startsWith("container")) {
+        } else if (isContainer) {
           // silhueta preenchida: a máscara real do recorte (inclui formas em degrau que o
           // raio de canto sozinho não reproduz).
           maskPath = path;
         } else {
           const key = filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
           if (!stickers.some((s) => s.key === key)) {
-            stickers.push({ key, path, x: 10, y: 10, w: 30, h: 15 });
+            const w = 30;
+            const h = trimmedDims ? Math.min(60, w * (trimmedDims.height / trimmedDims.width)) : 15;
+            stickers.push({ key, path, x: 10, y: 10, w, h });
           }
         }
       }
@@ -311,15 +390,25 @@ const AdminPresets = () => {
    * outro formato) direto como sticker — sem precisar montar um .zip pra adicionar só um item.
    */
   const addSticker = async (preset: Preset, format: "card" | "carousel" | "story", file: File) => {
+    // Recorta a margem transparente antes de subir (ver trimTransparentPadding) — não faz
+    // sentido pra .svg (vetorial, sem canal alfa rasterizado pra escanear).
+    const isRaster = file.type !== "image/svg+xml" && !file.name.toLowerCase().endsWith(".svg");
+    const trimmed = isRaster ? await trimTransparentPadding(file).catch(() => null) : null;
+    const upload = trimmed?.trimmed ? trimmed.blob : file;
+
     const path = `${preset.id}/sticker-${crypto.randomUUID()}-${file.name.replace(/[^\w.-]+/g, "_")}`;
-    const { error: upErr } = await supabase.storage.from("preset-assets").upload(path, file);
+    const { error: upErr } = await supabase.storage.from("preset-assets").upload(path, upload, trimmed?.trimmed ? { contentType: "image/png" } : undefined);
     if (upErr) return toast.error(upErr.message);
     await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: path });
 
     const current = preset.template_spec[format] ?? emptySpec(1080, format === "story" ? 1920 : 1440);
     const key = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
     const stickers = [...(current.stickers ?? [])];
-    if (!stickers.some((s) => s.key === key)) stickers.push({ key, path, x: 10, y: 4, w: 30, h: 8 });
+    if (!stickers.some((s) => s.key === key)) {
+      const w = 30;
+      const h = trimmed?.trimmed ? Math.min(60, w * (trimmed.height / trimmed.width)) : 8;
+      stickers.push({ key, path, x: 10, y: 4, w, h });
+    }
     await saveSpec(preset, format, { ...current, stickers });
     toast.success("Elemento gráfico adicionado — ajuste a posição no editor abaixo");
     await loadFiles(preset.id);
@@ -359,6 +448,28 @@ const AdminPresets = () => {
     await saveSpec(preset, format, { ...current, fontFamily, fontPath: path });
     toast.success(`Fonte "${fontFamily}" aplicada a este formato`);
     await loadFiles(preset.id);
+  };
+
+  /**
+   * Recorta a margem transparente de um elemento já importado (da biblioteca arrastável) no
+   * momento em que ele é solto no card como um sticker novo — sobe um arquivo NOVO (o
+   * original continua intacto, servindo pra usos de máscara/moldura em tamanho cheio). Se não
+   * achar margem significativa pra cortar, devolve null e quem chamou usa o arquivo original.
+   */
+  const trimLibraryAssetForSticker = async (preset: Preset, url: string): Promise<{ path: string; width: number; height: number } | null> => {
+    try {
+      const res = await fetch(url);
+      const rawBlob = await res.blob();
+      const t = await trimTransparentPadding(rawBlob);
+      if (!t.trimmed) return null;
+      const newPath = `${preset.id}/sticker-${crypto.randomUUID()}-trim.png`;
+      const { error: upErr } = await supabase.storage.from("preset-assets").upload(newPath, t.blob, { contentType: "image/png" });
+      if (upErr) return null;
+      await db.from("preset_reference_files").insert({ preset_id: preset.id, kind: "componente", storage_path: newPath });
+      return { path: newPath, width: t.width, height: t.height };
+    } catch {
+      return null;
+    }
   };
 
   const saveSpec = async (preset: Preset, format: "card" | "carousel" | "story", spec: FormatTemplateSpec) => {
@@ -529,6 +640,7 @@ const AdminPresets = () => {
                             onUploadFont={(file) => addFont(preset, f.id, file)}
                             onUploadMask={(file) => addMask(preset, f.id, file)}
                             libraryAssets={libraryAssets}
+                            onTrimLibraryAsset={(url) => trimLibraryAssetForSticker(preset, url)}
                           />
                         ) : (
                           <p className="text-sm text-muted-foreground">Envie a arte de referência deste formato para começar a mapear os campos.</p>

@@ -222,6 +222,13 @@ interface Props {
    * arrastar uma pra cima do card cria um sticker novo na posição soltada, sem precisar subir
    * o arquivo de novo nem digitar posição manualmente. */
   libraryAssets?: { path: string; name: string; url: string }[];
+  /** Chamado ao soltar um elemento da biblioteca em cima do card — tenta recortar a margem
+   * transparente ao redor do desenho (ver trimTransparentPadding em Presets.tsx) subindo um
+   * arquivo novo, pra caixa de seleção/alinhamento do sticker ficar rente ao conteúdo visível
+   * em vez de sobrar a margem do arquivo original (que pode ter sido exportado num canvas
+   * maior, ex.: uma máscara recortada do card inteiro). Sem essa prop, ou se não achar margem
+   * significativa, o sticker usa o arquivo original sem recorte. */
+  onTrimLibraryAsset?: (url: string) => Promise<{ path: string; width: number; height: number } | null>;
 }
 
 let fieldCounter = 0;
@@ -363,7 +370,7 @@ const CollapsibleCard = ({
  * de imagem. Isso vira o template_spec que o TemplateRenderer usa depois — a
  * IA nunca decide layout, só preenche o que já foi desenhado aqui.
  */
-export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, onUploadFont, onUploadMask, libraryAssets }: Props) => {
+export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, onUploadFont, onUploadMask, libraryAssets, onTrimLibraryAsset }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stickerInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
@@ -628,9 +635,17 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   };
 
   /** Solto da biblioteca de miniaturas em cima do card (ver `libraryAssets`): cria um sticker
-   * novo já centralizado no ponto onde foi arrastado, sem precisar subir o arquivo de novo. */
-  const addStickerFromLibrary = (path: string, xPercent: number, yPercent: number) => {
-    const filename = path.split("/").pop() ?? path;
+   * novo já centralizado no ponto onde foi arrastado. Antes de posicionar, tenta recortar a
+   * margem transparente do arquivo original (via `onTrimLibraryAsset` — ver Presets.tsx) pra
+   * caixa do sticker nascer rente ao desenho, não à margem de um arquivo que pode ter sido
+   * exportado num canvas maior (ex.: uma máscara recortada do card inteiro) — sem isso, a
+   * caixa de seleção/alinhamento sobra maior que a forma visível. */
+  const addStickerFromLibrary = async (path: string, url: string, xPercent: number, yPercent: number) => {
+    const trimmed = onTrimLibraryAsset ? await onTrimLibraryAsset(url).catch(() => null) : null;
+    const finalPath = trimmed?.path ?? path;
+    const aspect = trimmed && trimmed.height > 0 ? trimmed.width / trimmed.height : 1;
+
+    const filename = finalPath.split("/").pop() ?? finalPath;
     const baseKey =
       filename
         .replace(/^(?:pack|sticker|mask|font|componente)-[0-9a-fA-F-]{36}-/, "")
@@ -645,10 +660,10 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
       key = `${baseKey}_${n}`;
     }
     const w = 20;
-    const h = 20;
+    const h = clamp(aspect > 0 ? w / aspect : 20, 4, 60);
     const sticker: StickerAsset = {
       key,
-      path,
+      path: finalPath,
       x: Math.max(0, Math.min(100 - w, xPercent - w / 2)),
       y: Math.max(0, Math.min(100 - h, yPercent - h / 2)),
       w,
@@ -826,7 +841,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                 key={asset.path}
                 draggable
                 onDragStart={(e) => {
-                  e.dataTransfer.setData("text/plain", asset.path);
+                  e.dataTransfer.setData("text/plain", JSON.stringify({ path: asset.path, url: asset.url }));
                   e.dataTransfer.effectAllowed = "copy";
                 }}
                 title="Arraste pra cima do card"
@@ -876,11 +891,17 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
             if (e.dataTransfer.types.includes("text/plain")) e.preventDefault();
           }}
           onDrop={(e) => {
-            const path = e.dataTransfer.getData("text/plain");
-            if (!path) return;
+            const raw = e.dataTransfer.getData("text/plain");
+            if (!raw) return;
             e.preventDefault();
             const p = pct(e.clientX, e.clientY);
-            addStickerFromLibrary(path, p.x, p.y);
+            try {
+              const { path, url } = JSON.parse(raw) as { path: string; url: string };
+              void addStickerFromLibrary(path, url, p.x, p.y);
+            } catch {
+              // formato antigo/inesperado (só o path) — não trava o drop, só não recorta.
+              void addStickerFromLibrary(raw, "", p.x, p.y);
+            }
           }}
           className="relative border border-border rounded-lg overflow-hidden select-none cursor-crosshair"
           style={{ aspectRatio: `${spec.width} / ${spec.height}`, maxHeight: "70vh" }}
