@@ -800,6 +800,34 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
         setMultiSelectKeys(new Set());
         return;
       }
+      // Delete/Backspace no elemento já selecionado — sem precisar clicar na lixeira do
+      // painel lateral. Com seleção múltipla (Shift+clique), apaga todos de uma vez, num
+      // passo de undo só.
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (multiSelectKeys.size > 0) {
+          e.preventDefault();
+          let next = spec;
+          multiSelectKeys.forEach((id) => {
+            if (id.startsWith("field:")) next = { ...next, fields: next.fields.filter((f) => f.key !== idKeyPart(id)) };
+            else if (id.startsWith("sticker:")) next = { ...next, stickers: (next.stickers ?? []).filter((s) => s.key !== idKeyPart(id)) };
+            else if (id === "image") next = { ...next, imageSlot: undefined };
+          });
+          commitSpec(next);
+          setMultiSelectKeys(new Set());
+          return;
+        }
+        if (selected) {
+          e.preventDefault();
+          removeField(selected);
+          return;
+        }
+        if (selectedStickerKey) {
+          e.preventDefault();
+          removeSticker(selectedStickerKey);
+          return;
+        }
+        return;
+      }
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
       if (!selected && !selectedStickerKey) return;
       e.preventDefault();
