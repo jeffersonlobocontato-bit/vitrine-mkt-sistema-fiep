@@ -399,6 +399,13 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   // Linhas-guia de encaixe (snap) ativas durante um arrasto de mover — igual Canva/Figma.
   const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
 
+  // Seleção múltipla (Shift+clique em vários elementos) — só existe pra alinhar um elemento em
+  // relação aos outros selecionados (alinhar contra o canvas já é o painel de alinhamento comum
+  // de um elemento só). IDs no mesmo formato do painel de camadas: "image", "field:<key>",
+  // "sticker:<key>". Enquanto tiver 2+ elementos aqui, os painéis de propriedade de um elemento
+  // só (Campo selecionado etc.) ficam escondidos — o painel de alinhar-entre-si assume o lugar.
+  const [multiSelectKeys, setMultiSelectKeys] = useState<Set<string>>(new Set());
+
   // Desfazer/refazer: pilha de estados anteriores do spec. `gestureBaseRef` guarda o estado
   // de ANTES do gesto em andamento (só grava no histórico quando o gesto termina), pra um
   // arrasto inteiro (várias mudanças por segundo) virar UM passo de undo, não centenas.
@@ -458,6 +465,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     setDrawing({ x0: p.x, y0: p.y, x: p.x, y: p.y });
     setSelected(null);
     setSelectedStickerKey(null);
+    setMultiSelectKeys(new Set());
   };
 
   // Versões "cruas" dos mutadores — chamadas só durante o arrasto contínuo (mousemove), sem
@@ -550,10 +558,51 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const removeField = (key: string) => {
     commitSpec({ ...spec, fields: spec.fields.filter((f) => f.key !== key) });
     if (selected === key) setSelected(null);
+    setMultiSelectKeys((prev) => {
+      if (!prev.has(`field:${key}`)) return prev;
+      const next = new Set(prev);
+      next.delete(`field:${key}`);
+      return next;
+    });
+  };
+
+  /** Resolve o box atual (x/y/w/h) de um id do jeito "image" / "field:<key>" / "sticker:<key>"
+   * — mesmo formato usado no painel de camadas — pra calcular a caixa combinada da seleção
+   * múltipla e aplicar o alinhamento. */
+  const idKeyPart = (id: string) => id.slice(id.indexOf(":") + 1);
+  const getBoxForId = (id: string): Box | null => {
+    if (id === "image") return spec.imageSlot ? { x: spec.imageSlot.x, y: spec.imageSlot.y, w: spec.imageSlot.w, h: spec.imageSlot.h } : null;
+    if (id.startsWith("field:")) {
+      const f = spec.fields.find((x) => x.key === idKeyPart(id));
+      return f ? { x: f.x, y: f.y, w: f.w, h: f.h } : null;
+    }
+    const s = (spec.stickers ?? []).find((x) => x.key === idKeyPart(id));
+    return s ? { x: s.x, y: s.y, w: s.w, h: s.h } : null;
+  };
+
+  /** Shift+clique no corpo de um elemento (não nas alças de redimensionar) alterna ele dentro
+   * da seleção múltipla, sem iniciar arrasto — igual Canva/Figma: clica no primeiro, segura
+   * Shift e clica nos demais que quer alinhar entre si. Sem seleção múltipla ainda, começa uma
+   * nova incluindo o que já estava selecionado sozinho (se houver). */
+  const toggleMultiSelect = (id: string) => {
+    setMultiSelectKeys((prev) => {
+      const next = new Set(prev);
+      if (next.size === 0) {
+        const currentSingle = selected ? `field:${selected}` : selectedStickerKey ? `sticker:${selectedStickerKey}` : null;
+        if (currentSingle && currentSingle !== id) next.add(currentSingle);
+      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setSelected(null);
+    setSelectedStickerKey(null);
   };
 
   const startDragFieldMove = (e: React.MouseEvent, field: TemplateField) => {
     e.stopPropagation();
+    if (e.shiftKey) return toggleMultiSelect(`field:${field.key}`);
+    setMultiSelectKeys(new Set());
     setSelected(field.key);
     setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
@@ -561,6 +610,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   };
   const startResizeField = (e: React.MouseEvent, field: TemplateField, dir: HandleDir) => {
     e.stopPropagation();
+    setMultiSelectKeys(new Set());
     setSelected(field.key);
     setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
@@ -569,6 +619,8 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
 
   const startDragStickerMove = (e: React.MouseEvent, sticker: StickerAsset) => {
     e.stopPropagation();
+    if (e.shiftKey) return toggleMultiSelect(`sticker:${sticker.key}`);
+    setMultiSelectKeys(new Set());
     setSelectedStickerKey(sticker.key);
     setSelected(null);
     const p = pct(e.clientX, e.clientY);
@@ -576,6 +628,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   };
   const startResizeSticker = (e: React.MouseEvent, sticker: StickerAsset, dir: HandleDir) => {
     e.stopPropagation();
+    setMultiSelectKeys(new Set());
     setSelectedStickerKey(sticker.key);
     setSelected(null);
     const p = pct(e.clientX, e.clientY);
@@ -586,6 +639,8 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   // digitando números nos campos do painel.
   const startDragSlotMove = (e: React.MouseEvent, slot: NonNullable<FormatTemplateSpec["imageSlot"]>) => {
     e.stopPropagation();
+    if (e.shiftKey) return toggleMultiSelect("image");
+    setMultiSelectKeys(new Set());
     setSelected(null);
     setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
@@ -593,6 +648,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   };
   const startResizeSlot = (e: React.MouseEvent, slot: NonNullable<FormatTemplateSpec["imageSlot"]>, dir: HandleDir) => {
     e.stopPropagation();
+    setMultiSelectKeys(new Set());
     setSelected(null);
     setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
@@ -632,6 +688,51 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
 
   const removeSticker = (key: string) => {
     commitSpec({ ...spec, stickers: (spec.stickers ?? []).filter((s) => s.key !== key) });
+    setMultiSelectKeys((prev) => {
+      if (!prev.has(`sticker:${key}`)) return prev;
+      const next = new Set(prev);
+      next.delete(`sticker:${key}`);
+      return next;
+    });
+  };
+
+  // Caixa combinada de toda a seleção múltipla (menor x/y, maior x+w/y+h entre os elementos
+  // marcados) — é em relação a ESSA caixa que "alinhar à esquerda", "centralizar" etc. fazem
+  // sentido quando há 2+ elementos selecionados (alinhar um em relação aos outros, não ao
+  // canvas inteiro, que é o que o painel de alinhamento de um elemento só já faz).
+  const multiSelectBoxes = [...multiSelectKeys]
+    .map((id) => ({ id, box: getBoxForId(id) }))
+    .filter((e): e is { id: string; box: Box } => e.box !== null);
+  const groupBox: Box | null =
+    multiSelectBoxes.length >= 2
+      ? multiSelectBoxes.reduce<Box>((acc, { box }, i) => {
+          if (i === 0) return box;
+          const x = Math.min(acc.x, box.x);
+          const y = Math.min(acc.y, box.y);
+          const right = Math.max(acc.x + acc.w, box.x + box.w);
+          const bottom = Math.max(acc.y + acc.h, box.y + box.h);
+          return { x, y, w: right - x, h: bottom - y };
+        }, multiSelectBoxes[0].box)
+      : null;
+
+  /** Aplica `patchFor(caixaDoElemento, caixaDoGrupo)` a cada elemento da seleção múltipla, tudo
+   * numa única chamada de commitSpec — um passo de undo só pra ação inteira, não um por elemento. */
+  const alignGroup = (patchFor: (box: Box, group: Box) => Partial<Box>) => {
+    if (!groupBox) return;
+    let next = spec;
+    multiSelectBoxes.forEach(({ id, box }) => {
+      const patch = patchFor(box, groupBox);
+      if (id === "image" && next.imageSlot) {
+        next = { ...next, imageSlot: { ...next.imageSlot, ...patch } };
+      } else if (id.startsWith("field:")) {
+        const key = idKeyPart(id);
+        next = { ...next, fields: next.fields.map((f) => (f.key === key ? { ...f, ...patch } : f)) };
+      } else if (id.startsWith("sticker:")) {
+        const key = idKeyPart(id);
+        next = { ...next, stickers: (next.stickers ?? []).map((s) => (s.key === key ? { ...s, ...patch } : s)) };
+      }
+    });
+    commitSpec(next);
   };
 
   /** Solto da biblioteca de miniaturas em cima do card (ver `libraryAssets`): cria um sticker
@@ -695,6 +796,10 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
         return;
       }
       if (typing) return;
+      if (e.key === "Escape" && multiSelectKeys.size > 0) {
+        setMultiSelectKeys(new Set());
+        return;
+      }
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
       if (!selected && !selectedStickerKey) return;
       e.preventDefault();
@@ -720,7 +825,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, selectedStickerKey, spec]);
+  }, [selected, selectedStickerKey, spec, multiSelectKeys]);
 
   // Resolve signed URLs dos stickers pra mostrar a imagem real no grid.
   useEffect(() => {
@@ -935,7 +1040,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                 <div
                   key="__image__"
                   onMouseDown={(e) => startDragSlotMove(e, spec.imageSlot!)}
-                  className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium cursor-move"
+                  className={`absolute border-2 ${multiSelectKeys.has("image") ? "border-amber-500" : "border-blue-400"} bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium cursor-move`}
                   style={{ left: `${spec.imageSlot.x}%`, top: `${spec.imageSlot.y}%`, width: `${spec.imageSlot.w}%`, height: `${spec.imageSlot.h}%` }}
                 >
                   <ImageIcon className="w-4 h-4 mr-1" /> Slot de imagem
@@ -951,7 +1056,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                 <div
                   key={s.key}
                   onMouseDown={(e) => startDragStickerMove(e, s)}
-                  className={`absolute border-2 ${selectedStickerKey === s.key ? "border-amber-500" : "border-violet-500"} cursor-move overflow-hidden`}
+                  className={`absolute border-2 ${selectedStickerKey === s.key || multiSelectKeys.has(`sticker:${s.key}`) ? "border-amber-500" : "border-violet-500"} cursor-move overflow-hidden`}
                   style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }}
                 >
                   {stickerUrls[s.key] ? (
@@ -972,7 +1077,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                 <div
                   key={f.key}
                   onMouseDown={(e) => startDragFieldMove(e, f)}
-                  className={`absolute border-2 ${selected === f.key ? "border-amber-500 bg-amber-400/20" : "border-emerald-500 bg-emerald-400/10"} cursor-move flex items-start p-1`}
+                  className={`absolute border-2 ${selected === f.key || multiSelectKeys.has(`field:${f.key}`) ? "border-amber-500 bg-amber-400/20" : "border-emerald-500 bg-emerald-400/10"} cursor-move flex items-start p-1`}
                   style={{ left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%` }}
                 >
                   <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{f.label}</span>
@@ -1070,6 +1175,43 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
             }}
           />
         </div>
+
+        {groupBox && (
+          <Card>
+            <CardContent className="p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium">Alinhar {multiSelectBoxes.length} selecionados entre si</Label>
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setMultiSelectKeys(new Set())}>
+                  Limpar
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Shift+clique em mais elementos pra adicionar/remover da seleção. Os botões abaixo
+                alinham os selecionados entre si (não em relação ao canvas).
+              </p>
+              <div className="flex items-center gap-1">
+                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => alignGroup((box, group) => ({ x: group.x }))} title="Alinhar pela esquerda">
+                  <AlignHorizontalJustifyStart className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => alignGroup((box, group) => ({ x: group.x + group.w / 2 - box.w / 2 }))} title="Centralizar horizontalmente entre si">
+                  <AlignHorizontalJustifyCenter className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => alignGroup((box, group) => ({ x: group.x + group.w - box.w }))} title="Alinhar pela direita">
+                  <AlignHorizontalJustifyEnd className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => alignGroup((box, group) => ({ y: group.y }))} title="Alinhar pelo topo">
+                  <AlignVerticalJustifyStart className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => alignGroup((box, group) => ({ y: group.y + group.h / 2 - box.h / 2 }))} title="Centralizar verticalmente entre si">
+                  <AlignVerticalJustifyCenter className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => alignGroup((box, group) => ({ y: group.y + group.h - box.h }))} title="Alinhar pelo rodapé">
+                  <AlignVerticalJustifyEnd className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {layerItems.length > 0 && (
           <CollapsibleCard title="Camadas" icon={<Layers className="w-3.5 h-3.5" />}>
