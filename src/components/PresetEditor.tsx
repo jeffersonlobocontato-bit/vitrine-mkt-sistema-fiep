@@ -22,6 +22,12 @@ import {
   EyeOff,
   Undo2,
   Redo2,
+  AlignHorizontalJustifyStart,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
@@ -168,6 +174,32 @@ const ResizeHandles = ({ onResizeStart, color }: { onResizeStart: (e: React.Mous
       />
     ))}
   </>
+);
+
+/** Barra de alinhamento (esquerda/centro/direita, topo/centro/rodapé) — alinha o elemento em
+ * relação às margens e ao centro do canvas, igual Canva/Figma. `box` é o w/h atual do elemento
+ * (precisa pra calcular a posição centralizada e a margem oposta corretamente). */
+const AlignToolbar = ({ box, onAlign }: { box: { w: number; h: number }; onAlign: (patch: { x?: number; y?: number }) => void }) => (
+  <div className="flex items-center gap-1">
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ x: 0 })} title="Alinhar à margem esquerda">
+      <AlignHorizontalJustifyStart className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ x: 50 - box.w / 2 })} title="Centralizar horizontalmente">
+      <AlignHorizontalJustifyCenter className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ x: 100 - box.w })} title="Alinhar à margem direita">
+      <AlignHorizontalJustifyEnd className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ y: 0 })} title="Alinhar ao topo">
+      <AlignVerticalJustifyStart className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ y: 50 - box.h / 2 })} title="Centralizar verticalmente">
+      <AlignVerticalJustifyCenter className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ y: 100 - box.h })} title="Alinhar ao rodapé">
+      <AlignVerticalJustifyEnd className="w-3.5 h-3.5" />
+    </Button>
+  </div>
 );
 
 interface Props {
@@ -1092,6 +1124,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               </Button>
             }
           >
+              <AlignToolbar box={spec.imageSlot} onAlign={(patch) => updateImageSlot(patch)} />
               <div className="grid grid-cols-2 gap-2">
                 <Input type="number" value={Math.round(spec.imageSlot.x)} onChange={(e) => updateImageSlot({ x: Number(e.target.value) })} placeholder="x %" />
                 <Input type="number" value={Math.round(spec.imageSlot.y)} onChange={(e) => updateImageSlot({ y: Number(e.target.value) })} placeholder="y %" />
@@ -1160,6 +1193,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               </Button>
             }
           >
+              <AlignToolbar box={selectedField} onAlign={(patch) => updateField(selectedField.key, (f) => ({ ...f, ...patch }))} />
               <Input
                 value={selectedField.label}
                 onChange={(e) => updateField(selectedField.key, (f) => ({ ...f, label: e.target.value }))}
@@ -1235,6 +1269,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                       <Trash2 className="w-3.5 h-3.5 text-destructive" />
                     </Button>
                   </div>
+                  <AlignToolbar box={s} onAlign={(patch) => updateSticker(s.key, patch)} />
                   <div className="grid grid-cols-2 gap-1">
                     <Input type="number" value={Math.round(s.x)} onChange={(e) => updateSticker(s.key, { x: Number(e.target.value) })} placeholder="x %" />
                     <Input type="number" value={Math.round(s.y)} onChange={(e) => updateSticker(s.key, { y: Number(e.target.value) })} placeholder="y %" />
