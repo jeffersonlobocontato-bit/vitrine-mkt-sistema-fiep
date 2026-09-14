@@ -22,7 +22,7 @@ const FORMATS: { id: Format; label: string }[] = [
 
 interface Campanha { id: string; nome: string; escopo: "por_unidade" | "geral"; ativo: boolean }
 interface Item { id: string; nome: string; unidade_id: string | null; ativo: boolean; dados: Record<string, unknown> }
-interface Preset { id: string; name: string; template_spec: Partial<Record<Format, FormatTemplateSpec>> }
+interface Preset { id: string; name: string; template_spec: Partial<Record<Format, FormatTemplateSpec>>; campanha_id: string | null }
 
 const CONTACT_LABELS: Record<string, string> = { telefone: "Telefone", whatsapp: "WhatsApp", email: "E-mail", endereco: "Endereço" };
 interface Slide { order: number; values: Record<string, string>; image_url?: string }
@@ -75,7 +75,7 @@ const Gerar = () => {
     if (!casaId) return;
     const { data } = await db.from("campanhas").select("id, nome, escopo, ativo").eq("casa_id", casaId).eq("ativo", true).order("nome");
     setCampanhas((data ?? []) as Campanha[]);
-    const { data: p } = await db.from("agent_presets").select("id, name, template_spec").eq("casa_id", casaId);
+    const { data: p } = await db.from("agent_presets").select("id, name, template_spec, campanha_id").eq("casa_id", casaId);
     setPresets((p ?? []) as Preset[]);
   }, [casaId]);
 
@@ -107,10 +107,12 @@ const Gerar = () => {
     })();
   }, [itemId, itens]);
 
-  const validPresets = presets.filter((p) => (p.template_spec?.[format]?.fields?.length ?? 0) > 0);
+  // Só entram presets atribuídos à campanha escolhida (ver Admin → Presets) — antes qualquer
+  // preset da Casa aparecia aqui, mesmo sem relação com a campanha selecionada.
+  const validPresets = presets.filter((p) => p.campanha_id === campanhaId && (p.template_spec?.[format]?.fields?.length ?? 0) > 0);
   useEffect(() => {
     if (validPresets.length > 0 && !validPresets.some((p) => p.id === presetId)) setPresetId(validPresets[0].id);
-  }, [format, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [format, campanhaId, presets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resolveImageUrls = async (c: Creative) => {
     const entries = await Promise.all(
@@ -305,8 +307,10 @@ const Gerar = () => {
                   </select>
                 </div>
               )}
-              {validPresets.length === 0 && (
-                <p className="text-xs text-destructive">Nenhum preset com esse formato configurado ainda para esta Casa — peça ao designer para montar um em Admin → Presets.</p>
+              {campanhaId && validPresets.length === 0 && (
+                <p className="text-xs text-destructive">
+                  Nenhum preset atribuído a esta campanha (nesse formato) ainda — peça ao designer para criar um em Admin → Presets e atribuí-lo a esta campanha.
+                </p>
               )}
 
               {activeSpec?.fields.some((f) => f.dataBound) && Object.keys(contactOptions).length > 0 && (

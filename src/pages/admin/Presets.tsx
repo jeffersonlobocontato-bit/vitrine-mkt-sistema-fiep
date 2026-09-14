@@ -87,6 +87,11 @@ interface Preset {
   is_default: boolean;
   template_locked: boolean;
   template_spec: TemplateSpec;
+  campanha_id: string | null;
+}
+interface Campanha {
+  id: string;
+  nome: string;
 }
 interface RefFile {
   id: string;
@@ -103,6 +108,7 @@ const AdminPresets = () => {
   const canManage = casa ? isPlatformAdmin || hasCasaRole(casa.id, "designer") : false;
 
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [campanhas, setCampanhas] = useState<Campanha[]>([]);
   const [files, setFiles] = useState<Record<string, RefFile[]>>({});
   const [newName, setNewName] = useState("");
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -113,13 +119,32 @@ const AdminPresets = () => {
 
   const load = useCallback(async () => {
     if (!casa) return;
-    const { data } = await db.from("agent_presets").select("id, name, is_default, template_locked, template_spec").eq("casa_id", casa.id).order("name");
+    const { data } = await db
+      .from("agent_presets")
+      .select("id, name, is_default, template_locked, template_spec, campanha_id")
+      .eq("casa_id", casa.id)
+      .order("name");
     setPresets((data ?? []) as Preset[]);
+    const { data: c } = await db.from("campanhas").select("id, nome").eq("casa_id", casa.id).eq("ativo", true).order("nome");
+    setCampanhas((c ?? []) as Campanha[]);
   }, [casa]);
 
   useEffect(() => {
     if (casa) load();
   }, [casa, load]);
+
+  // Sem isso, o preset fica pronto mas invisível pra quem gera — a tela de geração só
+  // mostra presets cuja campanha_id bate com a campanha escolhida ali.
+  const setPresetCampanha = async (preset: Preset, campanhaId: string | null) => {
+    setPresets((prev) => prev.map((p) => (p.id === preset.id ? { ...p, campanha_id: campanhaId } : p)));
+    const { error } = await db.from("agent_presets").update({ campanha_id: campanhaId }).eq("id", preset.id);
+    if (error) {
+      toast.error(error.message);
+      await load();
+      return;
+    }
+    toast.success(campanhaId ? "Preset atribuído à campanha" : "Preset desvinculado da campanha");
+  };
 
   useEffect(() => {
     if (!loading && casa && !canManage) navigate("/admin", { replace: true });
@@ -383,6 +408,22 @@ const AdminPresets = () => {
                   {preset.is_default && <span className="text-xs text-muted-foreground">padrão</span>}
                 </div>
                 <CardDescription>Template fechado — clique para editar</CardDescription>
+                {/* Sem uma campanha atribuída, o preset fica pronto mas invisível pra quem
+                    gera (Gerar.tsx só lista presets cuja campanha_id bate com a campanha
+                    escolhida) — por isso fica no cabeçalho, visível mesmo com o card fechado. */}
+                <div className="pt-2 space-y-1" onClick={(e) => e.stopPropagation()}>
+                  <Label className="text-xs">Campanha</Label>
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    value={preset.campanha_id ?? ""}
+                    onChange={(e) => setPresetCampanha(preset, e.target.value || null)}
+                  >
+                    <option value="">Sem campanha — não aparece na tela de geração</option>
+                    {campanhas.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                </div>
               </CardHeader>
               {activePreset === preset.id && (
                 <CardContent className="space-y-4">
