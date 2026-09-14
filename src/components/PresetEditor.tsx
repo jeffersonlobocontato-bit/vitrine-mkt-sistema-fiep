@@ -4,9 +4,203 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Trash2, Plus, Upload, Image as ImageIcon, Sparkle, ChevronDown, Grid3x3, GripVertical, ChevronUp, Type, Layers, Link2, Link2Off, Eye, EyeOff } from "lucide-react";
+import {
+  Trash2,
+  Plus,
+  Upload,
+  Image as ImageIcon,
+  Sparkle,
+  ChevronDown,
+  Grid3x3,
+  GripVertical,
+  ChevronUp,
+  Type,
+  Layers,
+  Link2,
+  Link2Off,
+  Eye,
+  EyeOff,
+  Undo2,
+  Redo2,
+  AlignHorizontalJustifyStart,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+} from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { FormatTemplateSpec, StickerAsset, TemplateField } from "@/components/TemplateRenderer";
+
+/** Uma alça de redimensionar: `dx`/`dy` dizem qual lado do elemento ela controla (-1 = lado
+ * esquerdo/superior segue o cursor, o lado oposto fica fixo; +1 = lado direito/inferior segue,
+ * esquerdo/superior fixo; 0 = esse eixo não muda). 8 alças = 4 cantos + 4 bordas, igual
+ * Canva/Figma — antes só dava pra puxar do canto inferior direito. */
+interface HandleDir {
+  dx: -1 | 0 | 1;
+  dy: -1 | 0 | 1;
+}
+const RESIZE_HANDLES: { dir: HandleDir; className: string; cursor: string }[] = [
+  { dir: { dx: -1, dy: -1 }, className: "top-0 left-0 -translate-x-1/2 -translate-y-1/2", cursor: "cursor-nwse-resize" },
+  { dir: { dx: 0, dy: -1 }, className: "top-0 left-1/2 -translate-x-1/2 -translate-y-1/2", cursor: "cursor-ns-resize" },
+  { dir: { dx: 1, dy: -1 }, className: "top-0 right-0 translate-x-1/2 -translate-y-1/2", cursor: "cursor-nesw-resize" },
+  { dir: { dx: 1, dy: 0 }, className: "top-1/2 right-0 translate-x-1/2 -translate-y-1/2", cursor: "cursor-ew-resize" },
+  { dir: { dx: 1, dy: 1 }, className: "bottom-0 right-0 translate-x-1/2 translate-y-1/2", cursor: "cursor-nwse-resize" },
+  { dir: { dx: 0, dy: 1 }, className: "bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2", cursor: "cursor-ns-resize" },
+  { dir: { dx: -1, dy: 1 }, className: "bottom-0 left-0 -translate-x-1/2 translate-y-1/2", cursor: "cursor-nesw-resize" },
+  { dir: { dx: -1, dy: 0 }, className: "top-1/2 left-0 -translate-x-1/2 -translate-y-1/2", cursor: "cursor-ew-resize" },
+];
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Redimensiona uma caixa a partir de UMA alça (canto ou borda) — o lado oposto ao que foi
+ * puxado fica fixo (igual Adobe/Canva/Figma). Shift num canto trava a proporção original,
+ * ancorada no canto oposto; alças de borda só mexem num eixo, então proporção não se aplica. */
+const computeResize = (base: Box, dir: HandleDir, dxMouse: number, dyMouse: number, lockAspect: boolean): Box => {
+  let { x, y, w, h } = base;
+  if (dir.dx === 1) w = base.w + dxMouse;
+  else if (dir.dx === -1) {
+    x = base.x + dxMouse;
+    w = base.w - dxMouse;
+  }
+  if (dir.dy === 1) h = base.h + dyMouse;
+  else if (dir.dy === -1) {
+    y = base.y + dyMouse;
+    h = base.h - dyMouse;
+  }
+  if (lockAspect && dir.dx !== 0 && dir.dy !== 0 && base.w > 0 && base.h > 0) {
+    const scale = Math.max(w / base.w, h / base.h);
+    w = base.w * scale;
+    h = w * (base.h / base.w);
+    if (dir.dx === -1) x = base.x + base.w - w;
+    if (dir.dy === -1) y = base.y + base.h - h;
+  }
+  return { x, y, w: Math.max(2, w), h: Math.max(2, h) };
+};
+
+const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+/** Depois de redimensionar, garante que a caixa não vaze pra fora do canvas (0-100%) sem
+ * quebrar o lado que ficou fixo — se o lado direito/inferior estourou, encolhe a largura/altura
+ * em vez de mover o lado esquerdo/superior (e vice-versa). */
+const clampBox = (b: Box, minSize: number): Box => {
+  let { x, y, w, h } = b;
+  w = Math.max(minSize, w);
+  h = Math.max(minSize, h);
+  x = clamp(x, 0, 100 - w);
+  y = clamp(y, 0, 100 - h);
+  w = Math.min(w, 100 - x);
+  h = Math.min(h, 100 - y);
+  return { x, y, w, h };
+};
+
+const SNAP_THRESHOLD = 1;
+
+/** Linhas-guia candidatas pra encaixar (snap) um elemento sendo movido: bordas e centro do
+ * canvas, mais bordas/centro de todo outro elemento (campo, sticker, slot de imagem) — igual
+ * as guias magenta que aparecem ao arrastar algo no Canva/Figma. */
+const collectGuideTargets = (spec: FormatTemplateSpec, excludeId: string) => {
+  const xs = [0, 50, 100];
+  const ys = [0, 50, 100];
+  const boxes: Box[] = [
+    ...spec.fields.filter((f) => `field:${f.key}` !== excludeId).map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h })),
+    ...(spec.stickers ?? []).filter((s) => `sticker:${s.key}` !== excludeId).map((s) => ({ x: s.x, y: s.y, w: s.w, h: s.h })),
+    ...(spec.imageSlot && excludeId !== "image" ? [{ x: spec.imageSlot.x, y: spec.imageSlot.y, w: spec.imageSlot.w, h: spec.imageSlot.h }] : []),
+  ];
+  boxes.forEach((b) => {
+    xs.push(b.x, b.x + b.w / 2, b.x + b.w);
+    ys.push(b.y, b.y + b.h / 2, b.y + b.h);
+  });
+  return { xs, ys };
+};
+
+/** Tenta encaixar a posição (x,y) de um elemento sendo movido num alvo próximo (borda/centro
+ * do canvas ou de outro elemento) — compara a borda esquerda, o centro e a borda direita do
+ * elemento contra cada alvo (mesma lógica nos dois eixos), e usa o encaixe mais próximo dentro
+ * do limiar. Retorna também qual valor de guia bateu, pra desenhar a linha na tela. */
+const snapMove = (
+  spec: FormatTemplateSpec,
+  excludeId: string,
+  rawX: number,
+  rawY: number,
+  w: number,
+  h: number,
+): { x: number; y: number; guideX: number | null; guideY: number | null } => {
+  const { xs: xTargets, ys: yTargets } = collectGuideTargets(spec, excludeId);
+  let x = rawX;
+  let guideX: number | null = null;
+  let bestDx = SNAP_THRESHOLD;
+  [rawX, rawX + w / 2, rawX + w].forEach((edge, i) => {
+    xTargets.forEach((t) => {
+      const d = Math.abs(edge - t);
+      if (d < bestDx) {
+        bestDx = d;
+        guideX = t;
+        x = rawX + (t - edge);
+      }
+    });
+  });
+  let y = rawY;
+  let guideY: number | null = null;
+  let bestDy = SNAP_THRESHOLD;
+  [rawY, rawY + h / 2, rawY + h].forEach((edge) => {
+    yTargets.forEach((t) => {
+      const d = Math.abs(edge - t);
+      if (d < bestDy) {
+        bestDy = d;
+        guideY = t;
+        y = rawY + (t - edge);
+      }
+    });
+  });
+  return { x, y, guideX, guideY };
+};
+
+/** As 8 alças de redimensionar de um elemento selecionável — cantos + bordas, igual
+ * Canva/Figma. `color` casa com a cor de borda já usada por cada tipo de elemento
+ * (âmbar = campo, violeta = sticker, azul = slot de imagem). */
+const ResizeHandles = ({ onResizeStart, color }: { onResizeStart: (e: React.MouseEvent, dir: HandleDir) => void; color: string }) => (
+  <>
+    {RESIZE_HANDLES.map(({ dir, className, cursor }) => (
+      <div
+        key={`${dir.dx}-${dir.dy}`}
+        onMouseDown={(e) => onResizeStart(e, dir)}
+        className={`absolute w-2.5 h-2.5 rounded-sm border border-white ${color} ${className} ${cursor}`}
+      />
+    ))}
+  </>
+);
+
+/** Barra de alinhamento (esquerda/centro/direita, topo/centro/rodapé) — alinha o elemento em
+ * relação às margens e ao centro do canvas, igual Canva/Figma. `box` é o w/h atual do elemento
+ * (precisa pra calcular a posição centralizada e a margem oposta corretamente). */
+const AlignToolbar = ({ box, onAlign }: { box: { w: number; h: number }; onAlign: (patch: { x?: number; y?: number }) => void }) => (
+  <div className="flex items-center gap-1">
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ x: 0 })} title="Alinhar à margem esquerda">
+      <AlignHorizontalJustifyStart className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ x: 50 - box.w / 2 })} title="Centralizar horizontalmente">
+      <AlignHorizontalJustifyCenter className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ x: 100 - box.w })} title="Alinhar à margem direita">
+      <AlignHorizontalJustifyEnd className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ y: 0 })} title="Alinhar ao topo">
+      <AlignVerticalJustifyStart className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ y: 50 - box.h / 2 })} title="Centralizar verticalmente">
+      <AlignVerticalJustifyCenter className="w-3.5 h-3.5" />
+    </Button>
+    <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => onAlign({ y: 100 - box.h })} title="Alinhar ao rodapé">
+      <AlignVerticalJustifyEnd className="w-3.5 h-3.5" />
+    </Button>
+  </div>
+);
 
 interface Props {
   referenceUrl: string;
@@ -178,9 +372,12 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedStickerKey, setSelectedStickerKey] = useState<string | null>(null);
   const [drag, setDrag] = useState<
-    | { kind: "field"; key: string; mode: "move" | "resize"; startX: number; startY: number; field: TemplateField }
-    | { kind: "sticker"; key: string; mode: "move" | "resize"; startX: number; startY: number; sticker: StickerAsset }
-    | { kind: "slot"; mode: "move" | "resize"; startX: number; startY: number; slot: NonNullable<FormatTemplateSpec["imageSlot"]> }
+    | { kind: "field"; key: string; mode: "move"; startX: number; startY: number; field: TemplateField }
+    | { kind: "field"; key: string; mode: "resize"; dir: HandleDir; startX: number; startY: number; field: TemplateField }
+    | { kind: "sticker"; key: string; mode: "move"; startX: number; startY: number; sticker: StickerAsset }
+    | { kind: "sticker"; key: string; mode: "resize"; dir: HandleDir; startX: number; startY: number; sticker: StickerAsset }
+    | { kind: "slot"; mode: "move"; startX: number; startY: number; slot: NonNullable<FormatTemplateSpec["imageSlot"]> }
+    | { kind: "slot"; mode: "resize"; dir: HandleDir; startX: number; startY: number; slot: NonNullable<FormatTemplateSpec["imageSlot"]> }
     | null
   >(null);
   // Signed URLs das imagens de sticker pra exibir o elemento direto no grid (o bucket é privado).
@@ -192,6 +389,53 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   // referência pra conferir o resultado sem ela atrapalhar a leitura.
   const [showReference, setShowReference] = useState(true);
   const [dragLayerId, setDragLayerId] = useState<string | null>(null);
+  // Linhas-guia de encaixe (snap) ativas durante um arrasto de mover — igual Canva/Figma.
+  const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+
+  // Desfazer/refazer: pilha de estados anteriores do spec. `gestureBaseRef` guarda o estado
+  // de ANTES do gesto em andamento (só grava no histórico quando o gesto termina), pra um
+  // arrasto inteiro (várias mudanças por segundo) virar UM passo de undo, não centenas.
+  const [history, setHistory] = useState<{ past: FormatTemplateSpec[]; future: FormatTemplateSpec[] }>({ past: [], future: [] });
+  const specRef = useRef(spec);
+  specRef.current = spec;
+  const gestureBaseRef = useRef<FormatTemplateSpec | null>(null);
+
+  /** Aplica a mudança sem mexer no histórico — usado só durante o arrasto contínuo (mousemove),
+   * cujo início já foi capturado em `gestureBaseRef`. */
+  const applySpec = (next: FormatTemplateSpec) => onChange(next);
+
+  /** Fecha o gesto atual: grava o estado de antes no histórico (se algo mudou) e limpa o
+   * "future" (refazer só faz sentido logo depois de um undo, não depois de uma edição nova). */
+  const flushHistory = () => {
+    const base = gestureBaseRef.current;
+    gestureBaseRef.current = null;
+    if (base) setHistory((h) => ({ past: [...h.past.slice(-49), base], future: [] }));
+  };
+
+  /** Mudança de um clique/digitação só (não-arrasto): cada chamada vira seu próprio passo de
+   * undo — captura o estado antes de aplicar, aplica, e já fecha o gesto na hora. */
+  const commitSpec = (next: FormatTemplateSpec) => {
+    if (gestureBaseRef.current === null) gestureBaseRef.current = specRef.current;
+    applySpec(next);
+    flushHistory();
+  };
+
+  const undo = () => {
+    setHistory((h) => {
+      if (h.past.length === 0) return h;
+      const previous = h.past[h.past.length - 1];
+      applySpec(previous);
+      return { past: h.past.slice(0, -1), future: [specRef.current, ...h.future].slice(0, 50) };
+    });
+  };
+  const redo = () => {
+    setHistory((h) => {
+      if (h.future.length === 0) return h;
+      const nextSpec = h.future[0];
+      applySpec(nextSpec);
+      return { past: [...h.past, specRef.current].slice(-50), future: h.future.slice(1) };
+    });
+  };
 
   const pct = (clientX: number, clientY: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -209,14 +453,19 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
     setSelectedStickerKey(null);
   };
 
-  /** Shift segurado durante o resize trava a proporção original do elemento (escala largura e
-   * altura juntas, a partir do maior delta dos dois eixos); soltar Shift volta a esticar cada
-   * eixo livre e independente, mudando a proporção — igual Adobe/Canva. */
-  const resizeSize = (w0: number, h0: number, dx: number, dy: number, lockAspect: boolean) => {
-    if (!lockAspect) return { w: w0 + dx, h: h0 + dy };
-    const scale = Math.max((w0 + dx) / w0, (h0 + dy) / h0);
-    const w = w0 * scale;
-    return { w, h: w * (h0 / w0) };
+  // Versões "cruas" dos mutadores — chamadas só durante o arrasto contínuo (mousemove), sem
+  // mexer no histórico a cada pixel (o gesto inteiro vira um passo de undo só, fechado no
+  // mouseup por flushHistory). As versões usadas pelos campos numéricos da lateral (mais
+  // abaixo) já commitam cada mudança na hora.
+  const updateFieldDrag = (key: string, fn: (f: TemplateField) => TemplateField) => {
+    applySpec({ ...spec, fields: spec.fields.map((f) => (f.key === key ? fn(f) : f)) });
+  };
+  const updateStickerDrag = (key: string, patch: Partial<StickerAsset>) => {
+    applySpec({ ...spec, stickers: (spec.stickers ?? []).map((s) => (s.key === key ? { ...s, ...patch } : s)) });
+  };
+  const updateImageSlotDrag = (patch: Partial<FormatTemplateSpec["imageSlot"]>) => {
+    if (!spec.imageSlot) return;
+    applySpec({ ...spec, imageSlot: { ...spec.imageSlot, ...patch } });
   };
 
   const onCanvasMouseMove = (e: React.MouseEvent) => {
@@ -230,26 +479,38 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
       if (drag.kind === "field") {
         const f0 = drag.field;
         if (drag.mode === "move") {
-          updateField(drag.key, (f) => ({ ...f, x: Math.max(0, Math.min(100 - f.w, f0.x + dx)), y: Math.max(0, Math.min(100 - f.h, f0.y + dy)) }));
+          const raw = { x: f0.x + dx, y: f0.y + dy, w: f0.w, h: f0.h };
+          const snapped = snapMove(spec, `field:${drag.key}`, raw.x, raw.y, raw.w, raw.h);
+          setSnapGuides({ x: snapped.guideX, y: snapped.guideY });
+          const box = clampBox({ ...raw, x: snapped.x, y: snapped.y }, 2);
+          updateFieldDrag(drag.key, (f) => ({ ...f, x: box.x, y: box.y }));
         } else {
-          const { w, h } = resizeSize(f0.w, f0.h, dx, dy, e.shiftKey);
-          updateField(drag.key, (f) => ({ ...f, w: Math.max(4, Math.min(100 - f.x, w)), h: Math.max(3, Math.min(100 - f.y, h)) }));
+          const box = clampBox(computeResize(f0, drag.dir, dx, dy, e.shiftKey), 4);
+          updateFieldDrag(drag.key, (f) => ({ ...f, ...box }));
         }
       } else if (drag.kind === "slot") {
         const s0 = drag.slot;
         if (drag.mode === "move") {
-          updateImageSlot({ x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) });
+          const raw = { x: s0.x + dx, y: s0.y + dy, w: s0.w, h: s0.h };
+          const snapped = snapMove(spec, "image", raw.x, raw.y, raw.w, raw.h);
+          setSnapGuides({ x: snapped.guideX, y: snapped.guideY });
+          const box = clampBox({ ...raw, x: snapped.x, y: snapped.y }, 4);
+          updateImageSlotDrag({ x: box.x, y: box.y });
         } else {
-          const { w, h } = resizeSize(s0.w, s0.h, dx, dy, e.shiftKey);
-          updateImageSlot({ w: Math.max(4, Math.min(100 - s0.x, w)), h: Math.max(4, Math.min(100 - s0.y, h)) });
+          const box = clampBox(computeResize(s0, drag.dir, dx, dy, e.shiftKey), 4);
+          updateImageSlotDrag(box);
         }
       } else {
         const s0 = drag.sticker;
         if (drag.mode === "move") {
-          updateSticker(drag.key, { x: Math.max(0, Math.min(100 - s0.w, s0.x + dx)), y: Math.max(0, Math.min(100 - s0.h, s0.y + dy)) });
+          const raw = { x: s0.x + dx, y: s0.y + dy, w: s0.w, h: s0.h };
+          const snapped = snapMove(spec, `sticker:${drag.key}`, raw.x, raw.y, raw.w, raw.h);
+          setSnapGuides({ x: snapped.guideX, y: snapped.guideY });
+          const box = clampBox({ ...raw, x: snapped.x, y: snapped.y }, 2);
+          updateStickerDrag(drag.key, { x: box.x, y: box.y });
         } else {
-          const { w, h } = resizeSize(s0.w, s0.h, dx, dy, e.shiftKey);
-          updateSticker(drag.key, { w: Math.max(2, Math.min(100 - s0.x, w)), h: Math.max(2, Math.min(100 - s0.y, h)) });
+          const box = clampBox(computeResize(s0, drag.dir, dx, dy, e.shiftKey), 2);
+          updateStickerDrag(drag.key, box);
         }
       }
     }
@@ -265,62 +526,85 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
         fieldCounter += 1;
         const key = `campo_${fieldCounter}`;
         const field: TemplateField = { key, label: `Campo ${fieldCounter}`, x, y, w, h, size: 32, color: "#111827", align: "left", maxLines: 3 };
-        onChange({ ...spec, fields: [...spec.fields, field] });
+        commitSpec({ ...spec, fields: [...spec.fields, field] });
         setSelected(key);
       }
       setDrawing(null);
     }
     setDrag(null);
+    setSnapGuides({ x: null, y: null });
+    flushHistory();
   };
 
   const updateField = (key: string, fn: (f: TemplateField) => TemplateField) => {
-    onChange({ ...spec, fields: spec.fields.map((f) => (f.key === key ? fn(f) : f)) });
+    commitSpec({ ...spec, fields: spec.fields.map((f) => (f.key === key ? fn(f) : f)) });
   };
 
   const removeField = (key: string) => {
-    onChange({ ...spec, fields: spec.fields.filter((f) => f.key !== key) });
+    commitSpec({ ...spec, fields: spec.fields.filter((f) => f.key !== key) });
     if (selected === key) setSelected(null);
   };
 
-  const startDragField = (e: React.MouseEvent, field: TemplateField, mode: "move" | "resize") => {
+  const startDragFieldMove = (e: React.MouseEvent, field: TemplateField) => {
     e.stopPropagation();
     setSelected(field.key);
     setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
-    setDrag({ kind: "field", key: field.key, mode, startX: p.x, startY: p.y, field });
+    setDrag({ kind: "field", key: field.key, mode: "move", startX: p.x, startY: p.y, field });
+  };
+  const startResizeField = (e: React.MouseEvent, field: TemplateField, dir: HandleDir) => {
+    e.stopPropagation();
+    setSelected(field.key);
+    setSelectedStickerKey(null);
+    const p = pct(e.clientX, e.clientY);
+    setDrag({ kind: "field", key: field.key, mode: "resize", dir, startX: p.x, startY: p.y, field });
   };
 
-  const startDragSticker = (e: React.MouseEvent, sticker: StickerAsset, mode: "move" | "resize") => {
+  const startDragStickerMove = (e: React.MouseEvent, sticker: StickerAsset) => {
     e.stopPropagation();
     setSelectedStickerKey(sticker.key);
     setSelected(null);
     const p = pct(e.clientX, e.clientY);
-    setDrag({ kind: "sticker", key: sticker.key, mode, startX: p.x, startY: p.y, sticker });
+    setDrag({ kind: "sticker", key: sticker.key, mode: "move", startX: p.x, startY: p.y, sticker });
+  };
+  const startResizeSticker = (e: React.MouseEvent, sticker: StickerAsset, dir: HandleDir) => {
+    e.stopPropagation();
+    setSelectedStickerKey(sticker.key);
+    setSelected(null);
+    const p = pct(e.clientX, e.clientY);
+    setDrag({ kind: "sticker", key: sticker.key, mode: "resize", dir, startX: p.x, startY: p.y, sticker });
   };
 
   // Container da foto: mesmo arraste dos demais elementos — antes só dava pra posicionar
   // digitando números nos campos do painel.
-  const startDragSlot = (e: React.MouseEvent, slot: NonNullable<FormatTemplateSpec["imageSlot"]>, mode: "move" | "resize") => {
+  const startDragSlotMove = (e: React.MouseEvent, slot: NonNullable<FormatTemplateSpec["imageSlot"]>) => {
     e.stopPropagation();
     setSelected(null);
     setSelectedStickerKey(null);
     const p = pct(e.clientX, e.clientY);
-    setDrag({ kind: "slot", mode, startX: p.x, startY: p.y, slot });
+    setDrag({ kind: "slot", mode: "move", startX: p.x, startY: p.y, slot });
+  };
+  const startResizeSlot = (e: React.MouseEvent, slot: NonNullable<FormatTemplateSpec["imageSlot"]>, dir: HandleDir) => {
+    e.stopPropagation();
+    setSelected(null);
+    setSelectedStickerKey(null);
+    const p = pct(e.clientX, e.clientY);
+    setDrag({ kind: "slot", mode: "resize", dir, startX: p.x, startY: p.y, slot });
   };
 
   const addImageSlot = () => {
-    onChange({ ...spec, imageSlot: { x: 10, y: 10, w: 80, h: 40 } });
+    commitSpec({ ...spec, imageSlot: { x: 10, y: 10, w: 80, h: 40 } });
   };
 
   const updateImageSlot = (patch: Partial<FormatTemplateSpec["imageSlot"]>) => {
     if (!spec.imageSlot) return;
-    onChange({ ...spec, imageSlot: { ...spec.imageSlot, ...patch } });
+    commitSpec({ ...spec, imageSlot: { ...spec.imageSlot, ...patch } });
   };
 
   const addQuickField = (type: keyof typeof QUICK_FIELDS) => {
     fieldCounter += 1;
     const field: TemplateField = { ...QUICK_FIELDS[type], key: `${type}_${fieldCounter}` };
-    onChange({ ...spec, fields: [...spec.fields, field] });
+    commitSpec({ ...spec, fields: [...spec.fields, field] });
     setSelected(field.key);
     setShowAddMenu(false);
   };
@@ -336,11 +620,11 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   };
 
   const updateSticker = (key: string, patch: Partial<StickerAsset>) => {
-    onChange({ ...spec, stickers: (spec.stickers ?? []).map((s) => (s.key === key ? { ...s, ...patch } : s)) });
+    commitSpec({ ...spec, stickers: (spec.stickers ?? []).map((s) => (s.key === key ? { ...s, ...patch } : s)) });
   };
 
   const removeSticker = (key: string) => {
-    onChange({ ...spec, stickers: (spec.stickers ?? []).filter((s) => s.key !== key) });
+    commitSpec({ ...spec, stickers: (spec.stickers ?? []).filter((s) => s.key !== key) });
   };
 
   /** Solto da biblioteca de miniaturas em cima do card (ver `libraryAssets`): cria um sticker
@@ -370,10 +654,58 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
       w,
       h,
     };
-    onChange({ ...spec, stickers: [...(spec.stickers ?? []), sticker] });
+    commitSpec({ ...spec, stickers: [...(spec.stickers ?? []), sticker] });
     setSelected(null);
     setSelectedStickerKey(key);
   };
+
+  // Atalhos de teclado: Ctrl/Cmd+Z desfaz, Ctrl/Cmd+Shift+Z (ou +Y) refaz, setas movem o
+  // elemento selecionado em passos pequenos (Shift = passo maior) — igual Canva/Figma. Ignora
+  // tudo isso quando o foco está num campo de texto/número da lateral (não deveria interceptar
+  // o cursor de texto nem o das setas dentro de um <input>).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "z" && !typing) {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "y" && !typing) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (typing) return;
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+      if (!selected && !selectedStickerKey) return;
+      e.preventDefault();
+      const step = e.shiftKey ? 1 : 0.2;
+      const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+      const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+      if (selected) {
+        const f = spec.fields.find((x) => x.key === selected);
+        if (!f) return;
+        commitSpec({
+          ...spec,
+          fields: spec.fields.map((x) => (x.key === selected ? { ...x, x: clamp(x.x + dx, 0, 100 - x.w), y: clamp(x.y + dy, 0, 100 - x.h) } : x)),
+        });
+      } else if (selectedStickerKey) {
+        const s = spec.stickers?.find((x) => x.key === selectedStickerKey);
+        if (!s) return;
+        commitSpec({
+          ...spec,
+          stickers: (spec.stickers ?? []).map((x) => (x.key === selectedStickerKey ? { ...x, x: clamp(x.x + dx, 0, 100 - x.w), y: clamp(x.y + dy, 0, 100 - x.h) } : x)),
+        });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, selectedStickerKey, spec]);
 
   // Resolve signed URLs dos stickers pra mostrar a imagem real no grid.
   useEffect(() => {
@@ -430,7 +762,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
   const applyLayerOrder = (ordered: LayerItem[]) => {
     const n = ordered.length;
     const orderById = new Map(ordered.map((item, idx) => [item.id, n - 1 - idx]));
-    onChange({
+    commitSpec({
       ...spec,
       fields: spec.fields.map((f) => ({ ...f, order: orderById.get(`field:${f.key}`) ?? f.order })),
       stickers: (spec.stickers ?? []).map((s) => ({ ...s, order: orderById.get(`sticker:${s.key}`) ?? s.order })),
@@ -525,6 +857,14 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
             {showReference ? <Eye className="w-4 h-4 mr-1" /> : <EyeOff className="w-4 h-4 mr-1" />}
             Referência {showReference ? "visível" : "oculta"}
           </Button>
+          <div className="flex items-center gap-1 border-l border-border pl-2 ml-1">
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={undo} disabled={history.past.length === 0} title="Desfazer (Ctrl+Z)">
+              <Undo2 className="w-4 h-4" />
+            </Button>
+            <Button size="icon" variant="outline" className="h-8 w-8" onClick={redo} disabled={history.future.length === 0} title="Refazer (Ctrl+Shift+Z)">
+              <Redo2 className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
         <div
           ref={containerRef}
@@ -573,15 +913,12 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               node: (
                 <div
                   key="__image__"
-                  onMouseDown={(e) => startDragSlot(e, spec.imageSlot!, "move")}
+                  onMouseDown={(e) => startDragSlotMove(e, spec.imageSlot!)}
                   className="absolute border-2 border-blue-400 bg-blue-400/10 flex items-center justify-center text-xs text-blue-700 font-medium cursor-move"
                   style={{ left: `${spec.imageSlot.x}%`, top: `${spec.imageSlot.y}%`, width: `${spec.imageSlot.w}%`, height: `${spec.imageSlot.h}%` }}
                 >
                   <ImageIcon className="w-4 h-4 mr-1" /> Slot de imagem
-                  <div
-                    onMouseDown={(e) => startDragSlot(e, spec.imageSlot!, "resize")}
-                    className="absolute bottom-0 right-0 w-3 h-3 bg-blue-600 cursor-se-resize"
-                  />
+                  <ResizeHandles color="bg-blue-500" onResizeStart={(e, dir) => startResizeSlot(e, spec.imageSlot!, dir)} />
                 </div>
               ),
             });
@@ -592,7 +929,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               node: (
                 <div
                   key={s.key}
-                  onMouseDown={(e) => startDragSticker(e, s, "move")}
+                  onMouseDown={(e) => startDragStickerMove(e, s)}
                   className={`absolute border-2 ${selectedStickerKey === s.key ? "border-amber-500" : "border-violet-500"} cursor-move overflow-hidden`}
                   style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }}
                 >
@@ -601,10 +938,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                   ) : (
                     <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{s.key}</span>
                   )}
-                  <div
-                    onMouseDown={(e) => startDragSticker(e, s, "resize")}
-                    className="absolute bottom-0 right-0 w-3 h-3 bg-violet-600 cursor-se-resize"
-                  />
+                  <ResizeHandles color="bg-violet-500" onResizeStart={(e, dir) => startResizeSticker(e, s, dir)} />
                 </div>
               ),
             });
@@ -616,15 +950,12 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               node: (
                 <div
                   key={f.key}
-                  onMouseDown={(e) => startDragField(e, f, "move")}
+                  onMouseDown={(e) => startDragFieldMove(e, f)}
                   className={`absolute border-2 ${selected === f.key ? "border-amber-500 bg-amber-400/20" : "border-emerald-500 bg-emerald-400/10"} cursor-move flex items-start p-1`}
                   style={{ left: `${f.x}%`, top: `${f.y}%`, width: `${f.w}%`, height: `${f.h}%` }}
                 >
                   <span className="text-[10px] font-medium bg-background/80 px-1 rounded truncate">{f.label}</span>
-                  <div
-                    onMouseDown={(e) => startDragField(e, f, "resize")}
-                    className="absolute bottom-0 right-0 w-3 h-3 bg-amber-600 cursor-se-resize"
-                  />
+                  <ResizeHandles color="bg-amber-500" onResizeStart={(e, dir) => startResizeField(e, f, dir)} />
                 </div>
               ),
             });
@@ -643,6 +974,16 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               height: `${Math.abs(drawing.y - drawing.y0)}%`,
             }}
           />
+        )}
+
+        {/* Guias de encaixe (snap) — igual Canva/Figma: uma linha magenta aparece quando o
+            elemento sendo arrastado alinha com o centro do canvas ou com a borda/centro de
+            outro elemento, e a posição "gruda" nela. */}
+        {snapGuides.x !== null && (
+          <div className="absolute inset-y-0 w-px bg-fuchsia-500 pointer-events-none z-10" style={{ left: `${snapGuides.x}%` }} />
+        )}
+        {snapGuides.y !== null && (
+          <div className="absolute inset-x-0 h-px bg-fuchsia-500 pointer-events-none z-10" style={{ top: `${snapGuides.y}%` }} />
         )}
         </div>
       </div>
@@ -778,11 +1119,12 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
           <CollapsibleCard
             title="Slot de imagem"
             actions={
-              <Button size="icon" variant="ghost" onClick={() => onChange({ ...spec, imageSlot: undefined })}>
+              <Button size="icon" variant="ghost" onClick={() => commitSpec({ ...spec, imageSlot: undefined })}>
                 <Trash2 className="w-4 h-4 text-destructive" />
               </Button>
             }
           >
+              <AlignToolbar box={spec.imageSlot} onAlign={(patch) => updateImageSlot(patch)} />
               <div className="grid grid-cols-2 gap-2">
                 <Input type="number" value={Math.round(spec.imageSlot.x)} onChange={(e) => updateImageSlot({ x: Number(e.target.value) })} placeholder="x %" />
                 <Input type="number" value={Math.round(spec.imageSlot.y)} onChange={(e) => updateImageSlot({ y: Number(e.target.value) })} placeholder="y %" />
@@ -851,6 +1193,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
               </Button>
             }
           >
+              <AlignToolbar box={selectedField} onAlign={(patch) => updateField(selectedField.key, (f) => ({ ...f, ...patch }))} />
               <Input
                 value={selectedField.label}
                 onChange={(e) => updateField(selectedField.key, (f) => ({ ...f, label: e.target.value }))}
@@ -926,6 +1269,7 @@ export const PresetEditor = ({ referenceUrl, spec, onChange, onUploadSticker, on
                       <Trash2 className="w-3.5 h-3.5 text-destructive" />
                     </Button>
                   </div>
+                  <AlignToolbar box={s} onAlign={(patch) => updateSticker(s.key, patch)} />
                   <div className="grid grid-cols-2 gap-1">
                     <Input type="number" value={Math.round(s.x)} onChange={(e) => updateSticker(s.key, { x: Number(e.target.value) })} placeholder="x %" />
                     <Input type="number" value={Math.round(s.y)} onChange={(e) => updateSticker(s.key, { y: Number(e.target.value) })} placeholder="y %" />
